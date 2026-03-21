@@ -15,6 +15,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
+import { PlanModal } from "@/components/PlanModal";
 
 const GOLD = Colors.gold;
 
@@ -25,6 +26,7 @@ export default function SettingsScreen() {
   const [newKey, setNewKey] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic">("openai");
   const [showBusinessModal, setShowBusinessModal] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const [businessSector, setBusinessSector] = useState("");
 
@@ -159,6 +161,18 @@ export default function SettingsScreen() {
                 <Text style={styles.usageLabel}>Plan</Text>
                 <Text style={styles.usageValue}>{usageData.planName}</Text>
               </View>
+              {usageData.periodEnd && (
+                <View style={styles.usageRow}>
+                  <Text style={styles.usageLabel}>Renews</Text>
+                  <Text style={styles.usageValue}>
+                    {new Date(usageData.periodEnd).toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </Text>
+                </View>
+              )}
               <View style={styles.progressBar}>
                 <View
                   style={[
@@ -167,6 +181,14 @@ export default function SettingsScreen() {
                       width: usageData.eventsLimit === -1
                         ? "100%"
                         : `${Math.min(100, (usageData.eventsUsed / usageData.eventsLimit) * 100)}%`,
+                      backgroundColor:
+                        usageData.eventsLimit !== -1 &&
+                        (usageData.eventsUsed / usageData.eventsLimit) >= 1
+                          ? "#EF4444"
+                          : usageData.eventsLimit !== -1 &&
+                            (usageData.eventsUsed / usageData.eventsLimit) >= 0.8
+                          ? "#F59E0B"
+                          : GOLD,
                     },
                   ]}
                 />
@@ -174,11 +196,14 @@ export default function SettingsScreen() {
               <Text style={styles.usageMeta}>
                 {usageData.eventsUsed} / {usageData.eventsLimit === -1 ? "∞" : usageData.eventsLimit} AI events
               </Text>
-              {usageData.planId !== "unlimited" && (
-                <TouchableOpacity style={styles.upgradeBtn}>
-                  <Text style={styles.upgradeBtnText}>Upgrade Plan</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                style={styles.upgradeBtn}
+                onPress={() => setShowPlanModal(true)}
+              >
+                <Text style={styles.upgradeBtnText}>
+                  {usageData.planId === "free" ? "Upgrade Plan" : "Manage Plan"}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -366,6 +391,16 @@ export default function SettingsScreen() {
           </View>
         </SafeAreaView>
       </Modal>
+
+      <PlanModal
+        visible={showPlanModal}
+        onClose={() => setShowPlanModal(false)}
+        usageData={usageData}
+        onPurchaseSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ["usage-summary"] });
+          queryClient.invalidateQueries({ queryKey: ["usage"] });
+        }}
+      />
     </SafeAreaView>
   );
 }

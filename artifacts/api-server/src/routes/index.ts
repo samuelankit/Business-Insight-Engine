@@ -18,6 +18,7 @@ import sessionsRouter from "./sessions.js";
 import voiceRouter from "./voice.js";
 import accountRouter from "./account.js";
 import adminRouter from "./admin.js";
+import webhooksRouter from "./webhooks.js";
 
 const router: IRouter = Router();
 
@@ -43,5 +44,6 @@ router.use("/voice-preferences", voiceRouter);
 router.use("/transcribe", voiceRouter);
 router.use("/account", accountRouter);
 router.use("/admin", adminRouter);
+router.use("/webhooks", webhooksRouter);
 
 export default router;

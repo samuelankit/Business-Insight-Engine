@@ -10,9 +10,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
+import { PlanModal } from "@/components/PlanModal";
 
 const C = Colors.dark;
 
@@ -66,12 +67,22 @@ function TypingIndicator() {
   );
 }
 
+function getUsageBadgeColor(eventsUsed: number, eventsLimit: number) {
+  if (eventsLimit === -1) return Colors.gold;
+  const pct = (eventsUsed / eventsLimit) * 100;
+  if (pct >= 100) return "#EF4444";
+  if (pct >= 80) return "#F59E0B";
+  return Colors.gold;
+}
+
 export default function DashboardScreen() {
   const { userId, activeBusinessId, token } = useApp();
+  const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -175,6 +186,18 @@ export default function DashboardScreen() {
         signal: controller.signal,
       });
 
+      if (resp.status === 429) {
+        const body = await resp.json();
+        if (body.upgrade) {
+          setShowTyping(false);
+          setIsStreaming(false);
+          abortRef.current = null;
+          setShowPlanModal(true);
+          return;
+        }
+        throw new Error(`HTTP ${resp.status}`);
+      }
+
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}`);
       }
@@ -266,17 +289,27 @@ export default function DashboardScreen() {
     void streamMessage(trimmed);
   }, [message, isStreaming, streamMessage]);
 
-  const handleMode = (modeId: string, label: string) => {
-    const prompt = `Start a ${label} session for my business.`;
-    void streamMessage(prompt, modeId);
-  };
-
   const modes = [
     { id: "deep_research", label: "Deep Research", icon: "search" as const },
     { id: "strategy_swot", label: "Strategy SWOT", icon: "target" as const },
     { id: "brainstorm", label: "Brainstorm", icon: "zap" as const },
     { id: "business_plan", label: "Business Plan", icon: "file-text" as const },
   ];
+
+  const handleMode = (modeId: string, label: string) => {
+    const prompt = `Start a ${label} session for my business.`;
+    void streamMessage(prompt, modeId);
+  };
+
+  const usagePct =
+    usageData && usageData.eventsLimit > 0
+      ? (usageData.eventsUsed / usageData.eventsLimit) * 100
+      : 0;
+  const badgeColor = usageData
+    ? getUsageBadgeColor(usageData.eventsUsed, usageData.eventsLimit)
+    : Colors.gold;
+  const showWarningBanner =
+    usageData && usageData.eventsLimit > 0 && usagePct >= 80 && usagePct < 100;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -286,14 +319,35 @@ export default function DashboardScreen() {
           <Text style={styles.headerSub}>AI Business OS</Text>
         </View>
         {usageData && (
-          <View style={styles.usageBadge}>
-            <Text style={styles.usageText}>
-              {usageData.eventsUsed}/{usageData.eventsLimit === -1 ? "∞" : usageData.eventsLimit}
+          <TouchableOpacity
+            style={[styles.usageBadge, { borderColor: badgeColor + "66" }]}
+            onPress={() => setShowPlanModal(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.usageText, { color: badgeColor }]}>
+              {usageData.eventsUsed}/
+              {usageData.eventsLimit === -1 ? "∞" : usageData.eventsLimit}
             </Text>
-          </View>
+          </TouchableOpacity>
         )}
       </View>
 
+      {/* Warning banner at 80% */}
+      {showWarningBanner && (
+        <TouchableOpacity
+          style={styles.warningBanner}
+          onPress={() => setShowPlanModal(true)}
+          activeOpacity={0.8}
+        >
+          <Feather name="alert-triangle" size={14} color="#F59E0B" />
+          <Text style={styles.warningText}>
+            You've used {Math.round(usagePct)}% of your monthly AI events.{" "}
+            <Text style={styles.warningLink}>Upgrade to continue.</Text>
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Quick mode buttons */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -336,7 +390,9 @@ export default function DashboardScreen() {
             <Text
               style={[
                 styles.bubbleText,
-                msg.role === "user" ? styles.userBubbleText : styles.assistantBubbleText,
+                msg.role === "user"
+                  ? styles.userBubbleText
+                  : styles.assistantBubbleText,
               ]}
             >
               {msg.content}
@@ -371,6 +427,16 @@ export default function DashboardScreen() {
           <Feather name="send" size={18} color={message.trim() && !isStreaming ? "#0A0A0A" : "#555"} />
         </TouchableOpacity>
       </View>
+
+      <PlanModal
+        visible={showPlanModal}
+        onClose={() => setShowPlanModal(false)}
+        usageData={usageData}
+        onPurchaseSuccess={() => {
+          refetchUsage();
+          queryClient.invalidateQueries({ queryKey: ["usage-summary"] });
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -402,7 +468,6 @@ const styles = StyleSheet.create({
   },
   usageBadge: {
     backgroundColor: "#1A1A1A",
-    borderColor: "#2A2A2A",
     borderWidth: 1,
     borderRadius: 20,
     paddingHorizontal: 12,
@@ -411,7 +476,29 @@ const styles = StyleSheet.create({
   usageText: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
-    color: Colors.gold,
+  },
+  warningBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#1F1A00",
+    borderColor: "#F59E0B44",
+    borderWidth: 1,
+    borderRadius: 10,
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  warningText: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#F59E0B",
+    flex: 1,
+  },
+  warningLink: {
+    fontFamily: "Inter_600SemiBold",
+    textDecorationLine: "underline",
   },
   modeScroll: {
     maxHeight: 48,
