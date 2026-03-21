@@ -1,16 +1,16 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  RefreshControl,
   TextInput,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
 
@@ -20,21 +20,62 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  streaming?: boolean;
+}
+
+function TypingIndicator() {
+  const dot1 = useRef(new Animated.Value(0.3)).current;
+  const dot2 = useRef(new Animated.Value(0.3)).current;
+  const dot3 = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const pulse = (dot: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(dot, { toValue: 1, duration: 300, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0.3, duration: 300, useNativeDriver: true }),
+          Animated.delay(600 - delay),
+        ]),
+      );
+
+    const a1 = pulse(dot1, 0);
+    const a2 = pulse(dot2, 200);
+    const a3 = pulse(dot3, 400);
+    a1.start();
+    a2.start();
+    a3.start();
+    return () => {
+      a1.stop();
+      a2.stop();
+      a3.stop();
+    };
+  }, [dot1, dot2, dot3]);
+
+  return (
+    <View style={[styles.bubble, styles.assistantBubble, styles.typingBubble]}>
+      <View style={styles.assistantIcon}>
+        <Feather name="cpu" size={12} color={Colors.gold} />
+      </View>
+      <View style={styles.typingDots}>
+        <Animated.View style={[styles.dot, { opacity: dot1 }]} />
+        <Animated.View style={[styles.dot, { opacity: dot2 }]} />
+        <Animated.View style={[styles.dot, { opacity: dot3 }]} />
+      </View>
+    </View>
+  );
 }
 
 export default function DashboardScreen() {
   const { userId, activeBusinessId, token } = useApp();
   const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: "Welcome to GoRigo! I'm your AI business assistant. Ask me anything about your business, or choose a mode below to get started.",
-    },
-  ]);
-  const [refreshing, setRefreshing] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [showTyping, setShowTyping] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const { data: usageData } = useQuery({
+  const { data: usageData, refetch: refetchUsage } = useQuery({
     queryKey: ["usage", userId],
     queryFn: async () => {
       if (!token) return null;
@@ -47,45 +88,188 @@ export default function DashboardScreen() {
     enabled: !!token,
   });
 
-  const orchestrateMutation = useMutation({
-    mutationFn: async (msg: string) => {
-      if (!token || !activeBusinessId) throw new Error("Not authenticated");
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!token || !activeBusinessId) return;
+    loadHistory();
+  }, [token, activeBusinessId]);
+
+  const loadHistory = async () => {
+    if (!token || !activeBusinessId) return;
+    try {
       const domain = process.env["EXPO_PUBLIC_DOMAIN"];
+      const resp = await fetch(`https://${domain}/api/orchestrate/history?businessId=${activeBusinessId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) {
+        setMessages([
+          {
+            id: "welcome",
+            role: "assistant",
+            content: "Welcome to GoRigo! I'm your AI business assistant. Ask me anything about your business, or choose a mode below to get started.",
+          },
+        ]);
+        return;
+      }
+      const data = (await resp.json()) as { messages: Array<{ id: string; role: "user" | "assistant"; content: string }> };
+      if (data.messages.length === 0) {
+        setMessages([
+          {
+            id: "welcome",
+            role: "assistant",
+            content: "Welcome to GoRigo! I'm your AI business assistant. Ask me anything about your business, or choose a mode below to get started.",
+          },
+        ]);
+      } else {
+        setMessages(data.messages);
+      }
+    } catch {
+      setMessages([
+        {
+          id: "welcome",
+          role: "assistant",
+          content: "Welcome to GoRigo! I'm your AI business assistant. Ask me anything about your business, or choose a mode below to get started.",
+        },
+      ]);
+    }
+  };
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [messages.length]);
+
+  const streamMessage = useCallback(async (msg: string, sessionMode?: string) => {
+    if (!token || !activeBusinessId || isStreaming) return;
+
+    const userMsgId = Date.now().toString();
+    setMessages((prev) => [...prev, { id: userMsgId, role: "user", content: msg }]);
+    setShowTyping(true);
+    setIsStreaming(true);
+
+    const domain = process.env["EXPO_PUBLIC_DOMAIN"];
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const streamingId = (Date.now() + 1).toString();
+
+    try {
       const resp = await fetch(`https://${domain}/api/orchestrate`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          Accept: "text/event-stream",
         },
-        body: JSON.stringify({ message: msg, businessId: activeBusinessId }),
+        body: JSON.stringify({
+          message: msg,
+          businessId: activeBusinessId,
+          ...(sessionMode ? { sessionMode } : {}),
+        }),
+        signal: controller.signal,
       });
-      if (!resp.ok) throw new Error("Failed to send");
-      return resp.json();
-    },
-    onSuccess: (data) => {
+
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+
+      setShowTyping(false);
+
+      const reader = resp.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let currentEvent = "";
+      let firstToken = true;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+
+          if (trimmed.startsWith("event: ")) {
+            currentEvent = trimmed.slice(7).trim();
+            continue;
+          }
+
+          if (trimmed.startsWith("data: ")) {
+            try {
+              const payload = JSON.parse(trimmed.slice(6)) as Record<string, unknown>;
+
+              if (currentEvent === "token" && typeof payload["token"] === "string") {
+                const tok = payload["token"] as string;
+                if (firstToken) {
+                  firstToken = false;
+                  setMessages((prev) => [
+                    ...prev,
+                    { id: streamingId, role: "assistant", content: tok, streaming: true },
+                  ]);
+                } else {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === streamingId ? { ...m, content: m.content + tok } : m,
+                    ),
+                  );
+                }
+                scrollRef.current?.scrollToEnd({ animated: false });
+              } else if (currentEvent === "done") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === streamingId ? { ...m, streaming: false } : m,
+                  ),
+                );
+                await refetchUsage();
+              }
+
+              currentEvent = "";
+            } catch {
+            }
+          }
+        }
+      }
+
+      setMessages((prev) =>
+        prev.map((m) => (m.id === streamingId ? { ...m, streaming: false } : m)),
+      );
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      setShowTyping(false);
       setMessages((prev) => [
         ...prev,
-        { id: Date.now().toString(), role: "assistant", content: data.response },
+        {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: "Sorry, I had trouble connecting. Please check your API key in Settings.",
+        },
       ]);
-    },
-    onError: () => {
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now().toString(), role: "assistant", content: "Sorry, I had trouble connecting. Please check your API key in Settings." },
-      ]);
-    },
-  });
+    } finally {
+      setShowTyping(false);
+      setIsStreaming(false);
+      abortRef.current = null;
+    }
+  }, [token, activeBusinessId, isStreaming, refetchUsage]);
 
   const sendMessage = useCallback(() => {
     const trimmed = message.trim();
-    if (!trimmed || orchestrateMutation.isPending) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now().toString(), role: "user", content: trimmed },
-    ]);
+    if (!trimmed || isStreaming) return;
     setMessage("");
-    orchestrateMutation.mutate(trimmed);
-  }, [message, orchestrateMutation]);
+    void streamMessage(trimmed);
+  }, [message, isStreaming, streamMessage]);
+
+  const handleMode = (modeId: string, label: string) => {
+    const prompt = `Start a ${label} session for my business.`;
+    void streamMessage(prompt, modeId);
+  };
 
   const modes = [
     { id: "deep_research", label: "Deep Research", icon: "search" as const },
@@ -94,23 +278,8 @@ export default function DashboardScreen() {
     { id: "business_plan", label: "Business Plan", icon: "file-text" as const },
   ];
 
-  const handleMode = (modeId: string, label: string) => {
-    const prompt = `Start a ${label} session for my business.`;
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now().toString(), role: "user", content: prompt },
-    ]);
-    orchestrateMutation.mutate(prompt);
-  };
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
-  }, []);
-
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>GoRigo</Text>
@@ -125,7 +294,6 @@ export default function DashboardScreen() {
         )}
       </View>
 
-      {/* Quick mode buttons */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -138,6 +306,7 @@ export default function DashboardScreen() {
             style={styles.modeChip}
             onPress={() => handleMode(m.id, m.label)}
             activeOpacity={0.7}
+            disabled={isStreaming}
           >
             <Feather name={m.icon} size={14} color={Colors.gold} />
             <Text style={styles.modeChipText}>{m.label}</Text>
@@ -145,11 +314,11 @@ export default function DashboardScreen() {
         ))}
       </ScrollView>
 
-      {/* Chat area */}
       <ScrollView
+        ref={scrollRef}
         style={styles.chatArea}
         contentContainerStyle={styles.chatContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
       >
         {messages.map((msg) => (
           <View
@@ -174,14 +343,9 @@ export default function DashboardScreen() {
             </Text>
           </View>
         ))}
-        {orchestrateMutation.isPending && (
-          <View style={[styles.bubble, styles.assistantBubble]}>
-            <Text style={styles.assistantBubbleText}>Thinking...</Text>
-          </View>
-        )}
+        {showTyping && <TypingIndicator />}
       </ScrollView>
 
-      {/* Input bar */}
       <View style={styles.inputBar}>
         <TextInput
           style={styles.input}
@@ -193,17 +357,18 @@ export default function DashboardScreen() {
           maxLength={4000}
           returnKeyType="send"
           onSubmitEditing={sendMessage}
+          editable={!isStreaming}
         />
         <TouchableOpacity
           style={[
             styles.sendBtn,
-            (!message.trim() || orchestrateMutation.isPending) && styles.sendBtnDisabled,
+            (!message.trim() || isStreaming) && styles.sendBtnDisabled,
           ]}
           onPress={sendMessage}
-          disabled={!message.trim() || orchestrateMutation.isPending}
+          disabled={!message.trim() || isStreaming}
           activeOpacity={0.8}
         >
-          <Feather name="send" size={18} color={message.trim() ? "#0A0A0A" : "#555"} />
+          <Feather name="send" size={18} color={message.trim() && !isStreaming ? "#0A0A0A" : "#555"} />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -301,6 +466,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 8,
   },
+  typingBubble: {
+    alignItems: "center",
+  },
   assistantIcon: {
     marginTop: 2,
   },
@@ -316,6 +484,18 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: "#FFFFFF",
     flex: 1,
+  },
+  typingDots: {
+    flexDirection: "row",
+    gap: 4,
+    alignItems: "center",
+    paddingVertical: 2,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.gold,
   },
   inputBar: {
     flexDirection: "row",

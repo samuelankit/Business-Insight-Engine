@@ -32,6 +32,10 @@ const MODE_SYSTEM_PROMPTS: Record<string, string> = {
 const BASE_SYSTEM_PROMPT =
   "You are GoRigo, an AI business operating system assistant for UK businesses. You help owners manage their business, automate tasks, and make data-driven decisions. Be concise, professional, and practical. Use British English.";
 
+function sendSSE(res: import("express").Response, event: string, data: unknown) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
 router.post("/", requireAuth, async (req, res, next) => {
   try {
     const parsed = OrchestrateSchema.safeParse(req.body);
@@ -67,23 +71,30 @@ router.post("/", requireAuth, async (req, res, next) => {
       { role: "user" as const, content: message },
     ];
 
-    let response = "";
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    let fullResponse = "";
 
     const userApiKey = await getDecryptedKey(req.userId!, provider ?? "openai");
 
     try {
       if (userApiKey) {
         if ((provider ?? "openai") === "openai") {
-          response = await callWithUserKey(userApiKey, chatMessages, "openai");
+          fullResponse = await streamWithUserKey(userApiKey, chatMessages, res);
         } else {
-          response = await callAnthropic(userApiKey, message, req.userId!, businessId, systemPrompt);
+          fullResponse = await streamAnthropic(userApiKey, message, req.userId!, businessId, systemPrompt, res);
         }
       } else {
-        response = await callReplitAI(chatMessages);
+        fullResponse = await streamReplitAI(chatMessages, res);
       }
     } catch (aiErr) {
       req.log.warn({ err: aiErr }, "AI call failed");
-      response = "I'm having trouble generating a response right now. Please try again in a moment.";
+      fullResponse = "I'm having trouble generating a response right now. Please try again in a moment.";
+      sendSSE(res, "token", { token: fullResponse });
     }
 
     await db.insert(conversationsTable).values({
@@ -91,19 +102,49 @@ router.post("/", requireAuth, async (req, res, next) => {
       userId: req.userId!,
       businessId,
       role: "assistant",
-      content: response,
+      content: fullResponse,
     });
 
     await recordUsage(req.userId!, businessId, "orchestrate");
 
-    res.json({
-      response,
+    sendSSE(res, "done", {
       sessionMode: sessionMode ?? null,
       sessionStep: null,
       sessionTotalSteps: null,
       toolsUsed: [],
       usage: eventsUsed + 1,
+      eventsLimit,
     });
+
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/history", requireAuth, async (req, res, next) => {
+  try {
+    const businessId = req.query["businessId"] as string | undefined;
+    if (!businessId) {
+      res.status(400).json({ error: "businessId is required" });
+      return;
+    }
+
+    const msgs = await db
+      .select()
+      .from(conversationsTable)
+      .where(and(eq(conversationsTable.userId, req.userId!), eq(conversationsTable.businessId, businessId)))
+      .orderBy(desc(conversationsTable.createdAt))
+      .limit(20);
+
+    const history = msgs.reverse().map((m) => ({
+      id: m.id,
+      role: m.role as "user" | "assistant",
+      content: m.content,
+      createdAt: m.createdAt,
+    }));
+
+    res.json({ messages: history });
   } catch (err) {
     next(err);
   }
@@ -120,24 +161,37 @@ async function getConversationHistory(userId: string, businessId: string) {
   return msgs.reverse().map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 }
 
-async function callReplitAI(messages: Array<{ role: "system" | "user" | "assistant"; content: string }>): Promise<string> {
-  const completion = await replitOpenAI.chat.completions.create({
+async function streamReplitAI(
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  res: import("express").Response,
+): Promise<string> {
+  const stream = await replitOpenAI.chat.completions.create({
     model: "gpt-5.2",
     max_completion_tokens: 8192,
     messages,
+    stream: true,
   });
-  return completion.choices[0]?.message.content ?? "";
+
+  let full = "";
+  for await (const chunk of stream) {
+    const token = chunk.choices[0]?.delta?.content ?? "";
+    if (token) {
+      full += token;
+      sendSSE(res, "token", { token });
+    }
+  }
+  return full;
 }
 
-async function callWithUserKey(
+async function streamWithUserKey(
   apiKey: string,
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
-  _provider: string,
+  res: import("express").Response,
 ): Promise<string> {
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "gpt-4o", messages, max_tokens: 2000, temperature: 0.7 }),
+    body: JSON.stringify({ model: "gpt-4o", messages, max_tokens: 2000, temperature: 0.7, stream: true }),
   });
 
   if (!resp.ok) {
@@ -145,24 +199,61 @@ async function callWithUserKey(
     throw new Error(`OpenAI error: ${err}`);
   }
 
-  const data = (await resp.json()) as { choices: Array<{ message: { content: string } }> };
-  return data.choices[0]?.message.content ?? "";
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let full = "";
+  let buf = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed === "data: [DONE]") continue;
+      if (trimmed.startsWith("data: ")) {
+        try {
+          const json = JSON.parse(trimmed.slice(6)) as { choices: Array<{ delta: { content?: string } }> };
+          const token = json.choices[0]?.delta?.content ?? "";
+          if (token) {
+            full += token;
+            sendSSE(res, "token", { token });
+          }
+        } catch {
+        }
+      }
+    }
+  }
+  return full;
 }
 
-async function callAnthropic(
+async function streamAnthropic(
   apiKey: string,
   message: string,
   userId: string,
   businessId: string,
   systemPrompt: string,
+  res: import("express").Response,
 ): Promise<string> {
   const history = await getConversationHistory(userId, businessId);
   const messages = history.slice(-10).concat([{ role: "user" as const, content: message }]);
 
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-3-5-sonnet-20241022", max_tokens: 2000, system: systemPrompt, messages }),
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 2000,
+      system: systemPrompt,
+      messages,
+      stream: true,
+    }),
   });
 
   if (!resp.ok) {
@@ -170,8 +261,34 @@ async function callAnthropic(
     throw new Error(`Anthropic error: ${err}`);
   }
 
-  const data = (await resp.json()) as { content: Array<{ text: string }> };
-  return data.content[0]?.text ?? "";
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let full = "";
+  let buf = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith("data: ")) continue;
+      try {
+        const json = JSON.parse(trimmed.slice(6)) as {
+          type: string;
+          delta?: { type: string; text?: string };
+        };
+        if (json.type === "content_block_delta" && json.delta?.type === "text_delta" && json.delta.text) {
+          full += json.delta.text;
+          sendSSE(res, "token", { token: json.delta.text });
+        }
+      } catch {
+      }
+    }
+  }
+  return full;
 }
 
 export default router;
