@@ -17,6 +17,9 @@ const CreateSchema = z.object({
   sector: z.string().optional(),
   country: z.string().default("GB"),
   isActive: z.boolean().optional(),
+  accountType: z.string().optional().nullable(),
+  intent: z.string().optional().nullable(),
+  background: z.string().optional().nullable(),
 });
 
 const UpdateSchema = z.object({
@@ -24,6 +27,9 @@ const UpdateSchema = z.object({
   sector: z.string().optional().nullable(),
   country: z.string().optional(),
   isActive: z.boolean().optional(),
+  accountType: z.string().optional().nullable(),
+  intent: z.string().optional().nullable(),
+  background: z.string().optional().nullable(),
 });
 
 router.get("/", async (req, res, next) => {
@@ -46,7 +52,7 @@ router.post("/", async (req, res, next) => {
       return;
     }
 
-    const { name, sector, country, isActive } = parsed.data;
+    const { name, sector, country, isActive, accountType, intent, background } = parsed.data;
 
     // Check if this is the first business
     const existing = await db
@@ -72,6 +78,9 @@ router.post("/", async (req, res, next) => {
       sector,
       country,
       isActive: shouldBeActive,
+      accountType: accountType ?? null,
+      intent: intent ?? null,
+      background: background ?? null,
     });
 
     // Auto-add as owner
@@ -210,6 +219,9 @@ function mapBusiness(b: typeof businessesTable.$inferSelect) {
     sector: b.sector,
     country: b.country,
     isActive: b.isActive,
+    accountType: b.accountType,
+    intent: b.intent,
+    background: b.background,
     createdAt: b.createdAt.toISOString(),
   };
 }

@@ -10,3 +10,4 @@ export * from "./campaigns";
 export * from "./notifications";
 export * from "./knowledge";
 export * from "./sessions";
+export * from "./profiles";

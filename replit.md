@@ -39,7 +39,7 @@ Express 5 server with **19 route groups** mounted at `/api`:
 | Route | Description |
 |---|---|
 | `/api/auth` | Device auth + email OTP verification + account recovery |
-| `/api/businesses` | Business CRUD |
+| `/api/businesses` | Business CRUD (now stores accountType, intent, background) |
 | `/api/keys` | API key management (envelope encrypted) |
 | `/api/orchestrate` | AI chat orchestration |
 | `/api/agents` | AI agent management |
@@ -56,6 +56,8 @@ Express 5 server with **19 route groups** mounted at `/api`:
 | `/api/voice` | Voice call management |
 | `/api/account` | Account management |
 | `/api/admin` | Admin endpoints (ADMIN_TOKEN protected) |
+| `/api/profile` | User profile CRUD (displayName, email, country, accountType, intent, background, tocAcceptedAt) |
+| `/api/strategies` | AI strategy generation (SSE streaming) + history for 7 frameworks |
 
 ### Key Security Features
 - **Rate limiting**: AI 20/min, auth 10/min, general 100/min, webhooks 200/min
@@ -78,8 +80,9 @@ Expo React Native app with 5 screens:
 | `app/(tabs)/index.tsx` | Dashboard — AI chat with mode chips (Deep Research, Strategy SWOT, Brainstorm, Business Plan) |
 | `app/(tabs)/agents.tsx` | Agents — list AI agents, view status, approve pending actions |
 | `app/(tabs)/comms.tsx` | Communications — contacts list + campaign management |
+| `app/(tabs)/strategies.tsx` | Strategies — 7 AI framework analyses (SWOT, Porter's 5 Forces, OKRs, Blue Ocean, BMC, GTM, Competitive) |
 | `app/(tabs)/settings.tsx` | Settings — business info, API keys, team management, plan/usage |
-| `app/onboarding.tsx` | 4-step onboarding (business name, industry, size, country) |
+| `app/onboarding.tsx` | 9-step onboarding: Welcome → Name & Email → ToC/Privacy → Country → Account Type → Intent → Background → Business Setup (incl. API key) → Done |
 
 ### Mobile Design System
 - **Brand color**: Gold `#F5A623`
@@ -100,13 +103,15 @@ pnpm --filter @workspace/mobile run dev
 
 ## Database (`lib/db`)
 
-**13 schema files:**
-- `users`, `businesses`, `apiKeys`, `agents`, `tools`, `usage` (events + subscriptions + wallets), `team`, `contacts`, `campaigns`, `notifications`, `knowledge`, `sessions`
+**15 schema files:**
+- `users` (now includes `email`, `email_verified` columns), `businesses` (now includes `accountType`, `intent`, `background` columns), `apiKeys`, `agents`, `tools`, `usage` (events + subscriptions + wallets), `team`, `contacts`, `campaigns`, `notifications`, `knowledge`, `sessions`, `profiles` (`user_profiles` table), `strategies` (`strategies` table)
 
-Push schema to DB:
+Push schema to DB (uses drizzle-kit push — no migration files needed):
 ```bash
 pnpm --filter @workspace/db run push
 ```
+
+> **DB Migration approach**: This project uses `drizzle-kit push` (direct schema sync) rather than migration files. New tables/columns are applied by running the push command above. The `user_profiles` and `strategies` tables were added in Task #4; `accountType`, `intent`, `background` were added to `businesses`.
 
 ## Environment Variables
 

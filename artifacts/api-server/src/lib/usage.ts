@@ -38,6 +38,7 @@ const METERED_EVENTS = [
   "transcribe",
   "agent_run",
   "realtime_call",
+  "strategy_generate",
 ];
 
 export async function recordUsage(
