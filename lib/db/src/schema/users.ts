@@ -9,10 +9,15 @@ export const usersTable = pgTable(
     deviceId: text("device_id").notNull().unique(),
     platform: text("platform").notNull().default("ios"),
     suspended: boolean("suspended").notNull().default(false),
+    email: text("email").unique(),
+    emailVerified: boolean("email_verified").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [index("users_device_id_idx").on(t.deviceId)],
+  (t) => [
+    index("users_device_id_idx").on(t.deviceId),
+    index("users_email_idx").on(t.email),
+  ],
 );
 
 export const insertUserSchema = createInsertSchema(usersTable);
@@ -27,7 +32,6 @@ export const userTokensTable = pgTable(
       .notNull()
       .references(() => usersTable.id, { onDelete: "cascade" }),
     token: text("token").notNull().unique(),
-    // DEK encrypted by the platform KEK — envelope encryption
     encryptedDek: text("encrypted_dek").notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     expiresAt: timestamp("expires_at"),
@@ -36,6 +40,27 @@ export const userTokensTable = pgTable(
 );
 
 export type UserToken = typeof userTokensTable.$inferSelect;
+
+export const emailOtpsTable = pgTable(
+  "email_otps",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    hashedCode: text("hashed_code").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("email_otps_user_idx").on(t.userId),
+    index("email_otps_email_idx").on(t.email),
+  ],
+);
+
+export type EmailOtp = typeof emailOtpsTable.$inferSelect;
 
 export const voicePreferencesTable = pgTable("voice_preferences", {
   id: text("id").primaryKey(),

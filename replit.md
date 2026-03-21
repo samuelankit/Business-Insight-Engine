@@ -38,7 +38,7 @@ Express 5 server with **19 route groups** mounted at `/api`:
 
 | Route | Description |
 |---|---|
-| `/api/auth` | Device auth (token-based, no OAuth) |
+| `/api/auth` | Device auth + email OTP verification + account recovery |
 | `/api/businesses` | Business CRUD |
 | `/api/keys` | API key management (envelope encrypted) |
 | `/api/orchestrate` | AI chat orchestration |

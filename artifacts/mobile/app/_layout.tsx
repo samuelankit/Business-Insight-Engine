@@ -53,6 +53,7 @@ function RootLayoutNav() {
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="onboarding" />
+        <Stack.Screen name="recover-account" />
         <Stack.Screen name="(tabs)" />
       </Stack>
     </>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -30,7 +31,7 @@ const SECTORS = [
   { id: "other", label: "Other", icon: "grid" as const },
 ];
 
-type Step = "welcome" | "business" | "api_key" | "done";
+type Step = "welcome" | "business" | "email" | "email_otp" | "api_key" | "done";
 
 export default function OnboardingScreen() {
   const { token, completeOnboarding } = useApp();
@@ -38,9 +39,12 @@ export default function OnboardingScreen() {
   const [step, setStep] = useState<Step>("welcome");
   const [businessName, setBusinessName] = useState("");
   const [selectedSector, setSelectedSector] = useState("");
+  const [email, setEmail] = useState("");
+  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
   const [apiKey, setApiKey] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic">("openai");
   const [isLoading, setIsLoading] = useState(false);
+  const otpRefs = useRef<(TextInput | null)[]>([]);
 
   const apiBase = `https://${process.env["EXPO_PUBLIC_DOMAIN"]}/api`;
   const headers = { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" };
@@ -63,7 +67,7 @@ export default function OnboardingScreen() {
   };
 
   const saveApiKey = async () => {
-    if (!apiKey.trim()) return true; // Optional
+    if (!apiKey.trim()) return true;
     setIsLoading(true);
     try {
       const resp = await fetch(`${apiBase}/keys`, {
@@ -76,6 +80,93 @@ export default function OnboardingScreen() {
       return false;
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const requestEmailOtp = async () => {
+    setIsLoading(true);
+    try {
+      const resp = await fetch(`${apiBase}/auth/email/request-otp`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        setStep("email_otp");
+      } else {
+        Alert.alert("Error", data.error || "Failed to send verification code.");
+      }
+    } catch {
+      Alert.alert("Error", "Network error. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyEmailOtp = async () => {
+    const code = otpDigits.join("");
+    if (code.length !== 6) return;
+    setIsLoading(true);
+    try {
+      const resp = await fetch(`${apiBase}/auth/email/verify-otp`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ email: email.trim(), code }),
+      });
+      const data = await resp.json();
+      if (resp.ok && data.success) {
+        setStep("api_key");
+      } else {
+        Alert.alert("Error", data.error || "Invalid verification code.");
+      }
+    } catch {
+      Alert.alert("Error", "Network error. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setIsLoading(true);
+    try {
+      await fetch(`${apiBase}/auth/email/request-otp`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      Alert.alert("Sent", "A new verification code has been sent.");
+      setOtpDigits(["", "", "", "", "", ""]);
+    } catch {
+      Alert.alert("Error", "Failed to resend code.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOtpChange = (index: number, value: string) => {
+    if (value.length > 1) {
+      const digits = value.replace(/[^0-9]/g, "").slice(0, 6).split("");
+      const newOtp = [...otpDigits];
+      digits.forEach((d, i) => {
+        if (index + i < 6) newOtp[index + i] = d;
+      });
+      setOtpDigits(newOtp);
+      const nextIdx = Math.min(index + digits.length, 5);
+      otpRefs.current[nextIdx]?.focus();
+      return;
+    }
+    const newOtp = [...otpDigits];
+    newOtp[index] = value.replace(/[^0-9]/g, "");
+    setOtpDigits(newOtp);
+    if (value && index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpKeyPress = (index: number, key: string) => {
+    if (key === "Backspace" && !otpDigits[index] && index > 0) {
+      otpRefs.current[index - 1]?.focus();
     }
   };
 
@@ -92,7 +183,15 @@ export default function OnboardingScreen() {
         Alert.alert("Error", "Failed to create business. Please try again.");
         return;
       }
-      setStep("api_key");
+      setStep("email");
+    } else if (step === "email") {
+      if (email.trim()) {
+        await requestEmailOtp();
+      } else {
+        setStep("api_key");
+      }
+    } else if (step === "email_otp") {
+      await verifyEmailOtp();
     } else if (step === "api_key") {
       if (apiKey.trim()) {
         await saveApiKey();
@@ -132,6 +231,14 @@ export default function OnboardingScreen() {
                 </View>
               ))}
             </View>
+
+            <TouchableOpacity
+              style={styles.recoverLink}
+              onPress={() => router.push("/recover-account")}
+            >
+              <Feather name="refresh-cw" size={14} color={GOLD} />
+              <Text style={styles.recoverLinkText}>Recover an existing account</Text>
+            </TouchableOpacity>
           </View>
         );
 
@@ -178,6 +285,76 @@ export default function OnboardingScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+          </KeyboardAvoidingView>
+        );
+
+      case "email":
+        return (
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={styles.stepContent}
+          >
+            <Text style={styles.stepTitle}>Add your email</Text>
+            <Text style={styles.stepSubtitle}>
+              Optional — allows you to recover your account if you switch devices.
+            </Text>
+
+            <Text style={styles.fieldLabel}>Email Address</Text>
+            <TextInput
+              style={styles.textInput}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              placeholderTextColor="#555"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+            />
+
+            <View style={styles.securityNote}>
+              <Feather name="shield" size={14} color={GOLD} />
+              <Text style={styles.securityText}>
+                Your email lets you recover your account and data on a new device. We'll never spam you.
+              </Text>
+            </View>
+
+            <TouchableOpacity style={styles.skipLink} onPress={() => setStep("api_key")}>
+              <Text style={styles.skipLinkText}>Skip for now</Text>
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
+        );
+
+      case "email_otp":
+        return (
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={styles.stepContent}
+          >
+            <Text style={styles.stepTitle}>Verify your email</Text>
+            <Text style={styles.stepSubtitle}>
+              We sent a 6-digit code to {email}. Enter it below.
+            </Text>
+
+            <View style={styles.otpRow}>
+              {otpDigits.map((digit, i) => (
+                <TextInput
+                  key={i}
+                  ref={(ref) => { otpRefs.current[i] = ref; }}
+                  style={[styles.otpInput, digit && styles.otpInputFilled]}
+                  value={digit}
+                  onChangeText={(v) => handleOtpChange(i, v)}
+                  onKeyPress={({ nativeEvent }) => handleOtpKeyPress(i, nativeEvent.key)}
+                  keyboardType="number-pad"
+                  maxLength={1}
+                  textContentType="oneTimeCode"
+                />
+              ))}
+            </View>
+
+            <TouchableOpacity style={styles.resendBtn} onPress={handleResendOtp} disabled={isLoading}>
+              <Text style={styles.resendText}>Didn't receive a code? Resend</Text>
+            </TouchableOpacity>
           </KeyboardAvoidingView>
         );
 
@@ -241,45 +418,61 @@ export default function OnboardingScreen() {
     }
   };
 
-  const steps: Step[] = ["welcome", "business", "api_key", "done"];
-  const currentIndex = steps.indexOf(step);
+  const steps: Step[] = ["welcome", "business", "email", "email_otp", "api_key", "done"];
+  const visibleSteps: Step[] = ["welcome", "business", "email", "api_key", "done"];
+  const currentDotIndex = step === "email_otp"
+    ? visibleSteps.indexOf("email")
+    : visibleSteps.indexOf(step);
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Progress dots */}
         <View style={styles.dotsRow}>
-          {steps.map((s, i) => (
-            <View key={s} style={[styles.dot, i === currentIndex && styles.dotActive]} />
+          {visibleSteps.map((s, i) => (
+            <View key={s} style={[styles.dot, i === currentDotIndex && styles.dotActive]} />
           ))}
         </View>
 
         {renderStep()}
       </ScrollView>
 
-      {/* CTA button */}
       <View style={styles.footer}>
         <TouchableOpacity
           style={[
             styles.nextBtn,
             step === "business" && !businessName.trim() && styles.nextBtnDisabled,
+            step === "email_otp" && otpDigits.join("").length !== 6 && styles.nextBtnDisabled,
           ]}
           onPress={handleNext}
-          disabled={isLoading || (step === "business" && !businessName.trim())}
+          disabled={
+            isLoading ||
+            (step === "business" && !businessName.trim()) ||
+            (step === "email_otp" && otpDigits.join("").length !== 6)
+          }
           activeOpacity={0.85}
         >
-          <Text style={styles.nextBtnText}>
-            {isLoading
-              ? "Loading..."
-              : step === "done"
-              ? "Go to Dashboard"
-              : step === "api_key"
-              ? apiKey.trim()
-                ? "Save & Continue"
-                : "Continue"
-              : "Continue"}
-          </Text>
-          <Feather name="arrow-right" size={18} color="#0A0A0A" />
+          {isLoading ? (
+            <ActivityIndicator color="#0A0A0A" />
+          ) : (
+            <>
+              <Text style={styles.nextBtnText}>
+                {step === "done"
+                  ? "Go to Dashboard"
+                  : step === "api_key"
+                  ? apiKey.trim()
+                    ? "Save & Continue"
+                    : "Continue"
+                  : step === "email"
+                  ? email.trim()
+                    ? "Verify Email"
+                    : "Continue"
+                  : step === "email_otp"
+                  ? "Verify Code"
+                  : "Continue"}
+              </Text>
+              <Feather name="arrow-right" size={18} color="#0A0A0A" />
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -359,6 +552,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   featureLabel: { fontSize: 15, fontFamily: "Inter_500Medium", color: "#FFFFFF" },
+  recoverLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 24,
+    paddingVertical: 12,
+  },
+  recoverLinkText: { fontSize: 14, fontFamily: "Inter_500Medium", color: GOLD },
   stepTitle: {
     fontSize: 26,
     fontFamily: "Inter_700Bold",
@@ -394,6 +596,30 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     marginBottom: 24,
   },
+  otpRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 10,
+    marginBottom: 24,
+  },
+  otpInput: {
+    width: 48,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: "#1A1A1A",
+    borderColor: "#2A2A2A",
+    borderWidth: 1,
+    textAlign: "center",
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    color: "#FFFFFF",
+  },
+  otpInputFilled: {
+    borderColor: GOLD,
+    backgroundColor: Colors.goldMuted,
+  },
+  resendBtn: { alignItems: "center", paddingVertical: 12 },
+  resendText: { fontSize: 14, fontFamily: "Inter_400Regular", color: "#8A8A8A" },
   sectorGrid: {
     flexDirection: "row",
     flexWrap: "wrap",

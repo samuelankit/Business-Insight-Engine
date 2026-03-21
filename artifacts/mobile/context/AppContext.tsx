@@ -33,6 +33,8 @@ interface AppContextValue {
   setTheme: (theme: Theme) => Promise<void>;
   logout: () => Promise<void>;
   authenticate: () => Promise<void>;
+  loginWithRecovery: (userId: string, token: string) => Promise<void>;
+  getDeviceId: () => Promise<string>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -46,13 +48,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Set API base URL
     const domain = process.env["EXPO_PUBLIC_DOMAIN"];
     if (domain) {
       setBaseUrl(`https://${domain}`);
     }
 
-    // Set auth token getter
     setAuthTokenGetter(() => token);
 
     (async () => {
@@ -85,7 +85,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (storedOnboarding[1] === "true") setOnboardingComplete(true);
         if (storedTheme[1]) setThemeState(storedTheme[1] as Theme);
 
-        // Auto-authenticate if no token
         if (!t) {
           await doAuthenticate();
         }
@@ -133,6 +132,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const authenticate = useCallback(doAuthenticate, []);
 
+  const getDeviceId = useCallback(async () => {
+    let deviceId = await AsyncStorage.getItem(STORAGE_KEYS.DEVICE_ID);
+    if (!deviceId) {
+      deviceId = Crypto.randomUUID();
+      await AsyncStorage.setItem(STORAGE_KEYS.DEVICE_ID, deviceId);
+    }
+    return deviceId;
+  }, []);
+
+  const loginWithRecovery = useCallback(async (newUserId: string, newToken: string) => {
+    await AsyncStorage.multiSet([
+      [STORAGE_KEYS.TOKEN, newToken],
+      [STORAGE_KEYS.USER_ID, newUserId],
+      [STORAGE_KEYS.ONBOARDING_COMPLETE, "true"],
+    ]);
+    setToken(newToken);
+    setUserId(newUserId);
+    setOnboardingComplete(true);
+    setAuthTokenGetter(() => newToken);
+  }, []);
+
   const setActiveBusinessId = useCallback(async (id: string) => {
     setActiveBusinessIdState(id);
     await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_BUSINESS_ID, id);
@@ -176,6 +196,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setTheme,
         logout,
         authenticate,
+        loginWithRecovery,
+        getDeviceId,
       }}
     >
       {children}
