@@ -29,6 +29,13 @@ const queryClient = new QueryClient({
 
 function RootLayoutNav() {
   const { onboardingComplete, isLoading } = useApp();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isLoading && !onboardingComplete) {
+      router.replace("/onboarding");
+    }
+  }, [isLoading, onboardingComplete]);
 
   if (isLoading) {
     return (
@@ -42,9 +49,7 @@ function RootLayoutNav() {
     <>
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
-        {!onboardingComplete ? (
-          <Stack.Screen name="onboarding" />
-        ) : null}
+        <Stack.Screen name="onboarding" />
         <Stack.Screen name="(tabs)" />
       </Stack>
     </>
