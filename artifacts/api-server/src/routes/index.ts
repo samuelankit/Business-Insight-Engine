@@ -1,8 +1,47 @@
 import { Router, type IRouter } from "express";
-import healthRouter from "./health";
+import healthRouter from "./health.js";
+import authRouter from "./auth.js";
+import businessesRouter from "./businesses.js";
+import keysRouter from "./keys.js";
+import agentsRouter from "./agents.js";
+import orchestrateRouter from "./orchestrate.js";
+import toolsRouter from "./tools.js";
+import usageRouter from "./usage.js";
+import teamRouter from "./team.js";
+import contactsRouter from "./contacts.js";
+import campaignsRouter from "./campaigns.js";
+import notificationsRouter from "./notifications.js";
+import referralsRouter from "./referrals.js";
+import reportsRouter from "./reports.js";
+import knowledgeRouter from "./knowledge.js";
+import sessionsRouter from "./sessions.js";
+import voiceRouter from "./voice.js";
+import accountRouter from "./account.js";
+import adminRouter from "./admin.js";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use("/auth", authRouter);
+router.use("/businesses", businessesRouter);
+router.use("/keys", keysRouter);
+router.use("/agents", agentsRouter);
+router.use("/orchestrate", orchestrateRouter);
+router.use("/tools", toolsRouter);
+router.use("/usage", usageRouter);
+router.use("/team", teamRouter);
+router.use("/contacts", contactsRouter);
+router.use("/contact-lists", contactsRouter);
+router.use("/campaigns", campaignsRouter);
+router.use("/notifications", notificationsRouter);
+router.use("/referrals", referralsRouter);
+router.use("/reports", reportsRouter);
+router.use("/knowledge", knowledgeRouter);
+router.use("/sessions", sessionsRouter);
+router.use("/tts", voiceRouter);
+router.use("/voice-preferences", voiceRouter);
+router.use("/transcribe", voiceRouter);
+router.use("/account", accountRouter);
+router.use("/admin", adminRouter);
 
 export default router;

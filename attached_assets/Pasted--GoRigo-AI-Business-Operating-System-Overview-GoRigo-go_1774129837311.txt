@@ -1,0 +1,383 @@
+# GoRigo — AI Business Operating System
+
+## Overview
+
+GoRigo (gorigo.ai) is a voice-controlled AI business operating system mobile app designed for UK business users. It enables multi-business management, offers an AI agent dashboard, integrates Telnyx for communications, and ensures UK GDPR/PECR compliance. A core feature is the "Bring Your Own Key" (BYOK) model for Large Language Models (LLMs) like OpenAI and Anthropic, allowing users to provide and manage their own API keys. The project aims to provide a comprehensive, AI-powered platform to streamline business operations through intelligent automation and communication tools.
+
+## User Preferences
+
+- The agent should use pnpm for package management.
+- Node.js version 24 should be used.
+- TypeScript version 5.9 should be used.
+- The UI theme should default to Light mode with a Gold accent (#F5A623) and Inter font.
+- Theme changes should be persisted using AsyncStorage with the key `@gorigo/theme`.
+- Styling should follow the `createStyles` factory pattern.
+- The agent should prioritize user-provided OpenAI/Anthropic API keys, storing them encrypted.
+- The agent should ensure GDPR compliance by providing functions to purge user and business data.
+- Conversation history sent to LLMs should be truncated by token count.
+- Tool executions should have a 30-second timeout.
+- Client disconnects should abort LLM calls and tool execution.
+- The agent should use `pgvector` for RAG, embedding documents with OpenAI's `text-embedding-3-small`, and injecting top-5 relevant chunks into the system prompt. Knowledge should be siloed per business.
+- The agent should implement `express-rate-limit` with specific limits for different endpoint categories.
+- Critical POST routes should have Zod validation middleware.
+- The agent should ensure that the `ENCRYPTION_KEY` environment variable is set at startup.
+- The agent should manage business activation, allowing only one business to be active at a time.
+- Onboarding status and active business ID should be stored in AsyncStorage.
+- The API base URL should be configurable via `EXPO_PUBLIC_DOMAIN`.
+- The agent should support a "Wake Word" / Hands-Free Mode using audio metering for VAD, with preferences persisted in AsyncStorage.
+- The agent should use `pnpm workspaces` for the monorepo, `pnpm run typecheck` for root typechecking, and `pnpm --filter @workspace/api-spec run codegen` for API codegen.
+- The agent should implement an offline mode with command queuing and data caching.
+- The agent should support various voice-guided session modes (Deep Research, Strategy SWOT, Brainstorm, Business Plan) with progress indicators.
+
+## System Architecture
+
+The project is built as a monorepo using `pnpm workspaces` with a Node.js 24 backend and an Expo mobile frontend. TypeScript 5.9 is used throughout.
+
+**Backend (artifacts/api-server):**
+- **API Framework:** Express 5.
+- **Database:** PostgreSQL with Drizzle ORM for schema definition and interaction.
+- **Validation:** Zod for data validation, integrated with `drizzle-zod`.
+- **Security:** AES-256-GCM encryption for sensitive data like API keys, requiring an `ENCRYPTION_KEY` at startup. Rate limiting enforced via `express-rate-limit`.
+- **Compliance:** GDPR-compliant user and business data purging mechanisms.
+- **AI Orchestration:** Supports OpenAI `tools` and Anthropic `tool_use` for function calling. Conversation history is managed by token count.
+- **Knowledge Base (RAG):** Utilizes `pgvector` for embeddings (OpenAI `text-embedding-3-small`) of various document types. Chunks are stored in `knowledge_chunks` with HNSW indexing, enabling context injection into LLM prompts.
+- **Tooling System (BYOA):** A modular system allows dynamic registration of tools. Tools define functions with JSON Schema parameters and `execute` methods. Credentials are encrypted and decrypted on-the-fly. Dynamic system prompts enhance LLM awareness of available tools.
+- **Agent Scheduling:** A background scheduler manages agent execution based on configurable schedules (hourly, daily, weekly, custom). Significant actions from scheduled agents can be queued for user approval.
+- **Error Handling:** Global Express error middleware for sanitized responses.
+- **SSE:** Server-Sent Events are used to stream real-time status updates, including tool execution progress.
+
+- **BYOK**: Users provide their own OpenAI/Anthropic/ElevenLabs API keys; stored AES-256-GCM encrypted in DB
+- **Premium Voice Engine**: Platform TTS uses Google Cloud TTS Neural2 (en-GB-Neural2-B) via `GOOGLE_TTS_API_KEY`. Optional BYOK ElevenLabs premium upgrade. POST /tts returns audio/mpeg. Voice preferences (provider, voiceName, speechRate) stored in `voice_preferences` table, managed via GET/PUT /voice-preferences.
+- **Realtime AI Calls**: After Telnyx disclosure plays, inbound/outbound calls upgraded to live AI conversation via OpenAI Realtime API WebSocket bridge (`realtimeCall.ts`). Requires user's OpenAI key. Transcripts captured, call minutes billed via wallet (15p per realtime_call).
+- **Encryption key**: `ENCRYPTION_KEY` env var (64-char hex, 32 bytes); required at startup — server will refuse to start without it
+- **Rate limiting**: express-rate-limit — 100 req/min general, 20 req/min AI endpoints, 10 req/min auth, 200 req/min webhooks
+- **Input validation**: Zod middleware on critical POST routes (orchestrate, businesses, keys, tools/connections)
+- **GDPR**: `purgeUserData(userId)` and `purgeBusinessData(businessId)` cascade-delete all associated records; DELETE /account endpoint
+- **AI Disclosure (UK Compliance)**: Every outbound/inbound call plays a TTS disclosure message before connecting. Uses Telnyx Call Control `speak` action. Configurable per business via `disclosure_message` column in `telnyx_configs`. Default: "This call is being made with AI assistance on behalf of {businessName}. You may request to speak with a human at any time." Answering machine detection auto-hangs-up on voicemail. Call states: ringing → answered → disclosure_played → ai_active → completed (or voicemail_detected, failed). `disclosure_compliant` boolean on communications table tracks compliance.
+- **Gemini Live AI Call Engine**: Fully automated, platform-managed real-time AI phone calls. After disclosure plays, Telnyx media streaming starts and audio is bridged bidirectionally to Google Gemini Live API (`gemini-2.0-flash-live`). Audio codec: Telnyx µ-law 8kHz ↔ PCM 16kHz (Gemini input) / 24kHz (Gemini output). Transcripts accumulated from Gemini's input/output transcriptions. On hangup: transcript saved, summary generated via Gemini, per-minute billing charged to wallet (`ai_call` at 15p/min). Platform Gemini usage tracked separately (`ai_call_platform`). `GEMINI_API_KEY` env var required (server-side only, never exposed to users). WebSocket server on `/api/telnyx-stream` for Telnyx media streams. Key files: `src/lib/geminiLive.ts`, `src/lib/callSession.ts`, `src/lib/audioCodec.ts`, `src/ws/telnyxStream.ts`.
+- **Context window management**: Conversation history truncated by approx token count before sending to LLMs
+- **Voice-First Platform Tools**: 7 platform tools registered as "credentialType: platform" builtins that execute directly against the DB without external credentials. They receive `{userId, businessId}` as JSON context. Always available (no connection needed). Tools: businesses, agent_management, team, settings, wallet, referrals, comms.
+- **Platform Tool SSE Events**: Platform tools can return `_event` and `_eventData` fields which get forwarded to the mobile client as SSE events. Mobile handles: `settings_update` (theme changes), `business_switched/created/deleted` (refetch businesses), `checkout_url` (open payment link).
+- **Tool timeouts**: All tool execute() calls wrapped with 30s timeout
+- **SSE abort handling**: Client disconnect aborts LLM calls and tool execution via AbortController
+- **Global error handler**: Express error middleware sanitises error responses in production
+- **Database indexes**: Composite indexes on agent_logs, usage_events, conversations, communications, tool_connections, agents, businesses
+- **Foreign key constraints**: businesses→users, agents→users/businesses, agent_logs→agents, conversations→users
+- **Business management**: First business is auto-set as active; only one active at a time
+- **Admin console**: SuperAdmin access via `ADMIN_DEVICE_ID` env var matching a user's device_id. Protected by `adminAuth` middleware. Mobile screens at `/admin/*`. Admin voice tools registered as `admin_platform` builtin tool. Users can be suspended via `suspended` boolean on users table.
+- **Onboarding**: AsyncStorage keys `@gorigo/onboarding_complete` and `@gorigo/active_business_id`
+- **API base URL**: Set via `setBaseUrl()` in `_layout.tsx` using `EXPO_PUBLIC_DOMAIN`
+- **Wake Word / Hands-Free Mode**: `WakeWordProvider` context wraps the app in `_layout.tsx`. Uses audio metering for voice activity detection to trigger recording. Preference persisted in AsyncStorage (`@gorigo/wake_word_enabled`). Toggle in Settings > Voice. VAD (Voice Activity Detection) auto-stops recording after ~1.5s silence. Pauses wake word listening during recording/TTS, resumes after.
+
+**Frontend (artifacts/mobile):**
+- **Framework:** Expo (SDK 54) with `expo-router v6` for navigation.
+- **UI/UX:** Supports Light/Dark/System themes with a Gold accent, `Inter` font. Theme persistence is handled via AsyncStorage. Styling uses a `createStyles` factory pattern.
+- **State Management:** React Query hooks for API interactions generated by Orval.
+- **Offline Capabilities:** Features `useNetworkStatus`, `useOfflineQueue` (with AsyncStorage for persistent command queuing and sequential sync), and `useDataCache` (24h TTL) for robust offline operation.
+- **Voice Interaction:** Includes a `WakeWordProvider` for hands-free voice control and voice activity detection (VAD).
+- **Notifications:** Push notification registration and deep-linking support.
+
+**Data Flow & Structure:**
+- **Monorepo Structure:** Divided into `artifacts/` (api-server, mobile), `lib/` (api-spec, api-client-react, api-zod, db), and `scripts/`.
+- **API Spec:** OpenAPI 3.1 specification used with Orval for generating React Query hooks and Zod schemas.
+- **Database Schema:** Defined using Drizzle ORM, including tables for `businesses`, `api_keys`, `agents`, `agent_logs`, `tool_connections`, `usage_events`, `user_subscriptions`, `referrals`, `push_tokens`, `notification_preferences`, `team_members`, `team_invites`, `team_activity`, and `knowledge_chunks`. Extensive use of composite indexes and foreign key constraints.
+
+- `GET /healthz` — Health check
+- `GET /businesses` — List all businesses
+- `POST /businesses` — Create business `{name, sector, country, isActive?}`
+- `PUT /businesses/:id` — Update business
+- `DELETE /businesses/:id` — Delete business
+- `GET /keys` — List API keys (masked)
+- `POST /keys` — Save/update API key `{provider, key}` (providers: openai, anthropic, elevenlabs)
+- `POST /tts` — Server-side TTS synthesis, returns audio/mpeg (Google Neural2 default, ElevenLabs with BYOK key)
+- `GET /voice-preferences` — Get user voice preferences (provider, voiceName, speechRate)
+- `PUT /voice-preferences` — Update user voice preferences
+- `DELETE /keys/:id` — Delete API key
+- `GET /businesses/:id/insights` — Sector-specific automation recommendations
+- `POST /orchestrate` — Voice command orchestration (usage-metered, supports function calling, session modes, sector-aware)
+- `GET /sessions/active` — Check for active guided session (query: businessId)
+- `POST /sessions/exit` — Exit/cancel active guided session
+- `GET /sessions/history` — List all sessions for a business
+- `POST /transcribe` — Audio transcription (usage-metered)
+- `GET /agents/templates` — List predefined agent templates for the creation wizard
+- `POST /agents` — Create custom agent `{businessId, name, description, systemPrompt, toolAccess[]}`
+- `POST /agents/:agentId/run` — Run AI agent (usage-metered)
+- `POST /agents/:agentId/test-run` — Test run agent in preview mode (no logs persisted)
+- `PATCH /agents/:id` — Update agent (toggle active, schedule, prompt, toolAccess)
+- `GET /agents/approvals/pending` — List pending agent approval requests
+- `POST /agents/approvals/:actionId/approve` — Approve & execute pending action
+- `POST /agents/approvals/:actionId/reject` — Reject pending action
+- `GET /tools/available` — List all registered tools with connection status
+- `GET /tools/connections` — List user's connected tools
+- `POST /tools/connections` — Connect a tool `{toolName, credentials, scopes?}`
+- `DELETE /tools/connections/:id` — Disconnect a tool
+- `GET /usage/summary` — Current period usage summary (counts, limit, remaining, breakdown)
+- `GET /usage/history` — Past periods usage history
+- `GET /usage/plans` — List available subscription plans
+- `POST /usage/upgrade` — Switch plan or create Stripe Checkout session `{planId, successUrl?, cancelUrl?}`
+- `GET /usage/billing-portal` — Get Stripe Customer Portal URL for subscription management
+- `POST /webhooks/stripe` — Stripe webhook handler (unauthenticated, signature-verified)
+- `GET /notion/auth-url` — Get Notion OAuth authorization URL
+- `GET /notion/callback` — Notion OAuth callback (unauthenticated, browser redirect)
+- `GET /notion/status` — Check Notion connection status
+- `POST /notion/disconnect` — Disconnect Notion account
+- `GET /slack/auth-url` — Get Slack OAuth authorization URL
+- `GET /slack/callback` — Slack OAuth callback (unauthenticated, browser redirect)
+- `GET /slack/status` — Check Slack connection status
+- `POST /slack/disconnect` — Disconnect Slack workspace
+- `GET /google/auth-url` — Get Google OAuth authorization URL
+- `GET /google/callback` — Google OAuth callback (unauthenticated, browser redirect)
+- `GET /google/status` — Check Google connection status
+- `POST /google/disconnect` — Disconnect Google account
+- `GET /google/gmail/inbox` — Read Gmail inbox
+- `GET /google/gmail/search` — Search Gmail messages
+- `GET /google/gmail/message/:id` — Read full Gmail message
+- `POST /google/gmail/send` — Send email via Gmail
+- `POST /google/gmail/reply` — Reply to Gmail message
+- `GET /google/sheets/list` — List Google Sheets
+- `GET /google/sheets/read` — Read sheet data
+- `POST /google/sheets/append` — Append rows to sheet
+- `POST /google/sheets/update` — Update cells in sheet
+- `GET /google/calendar/events` — List calendar events
+- `POST /google/calendar/create` — Create calendar event
+- `GET /google/calendar/freebusy` — Check calendar availability
+- `GET /xero/auth-url` — Get Xero OAuth authorization URL
+- `GET /xero/callback` — Xero OAuth callback (unauthenticated, browser redirect)
+- `GET /xero/status` — Check Xero connection status
+- `POST /xero/disconnect` — Disconnect Xero account
+- `GET /admin/check` — Check if current device is the platform admin
+- `GET /admin/overview` — Platform stats: total users, active users (7d/30d), events, comms, businesses (admin-only)
+- `GET /admin/users` — Paginated user list with search (admin-only)
+- `GET /admin/users/:id` — Full user detail with businesses, agents, events, subscription (admin-only)
+- `POST /admin/users/:id/credit` — Credit user wallet `{amount, reason}` (admin-only)
+- `POST /admin/users/:id/suspend` — Toggle user suspension (admin-only)
+- `GET /admin/revenue` — Revenue breakdown: daily totals, by action type, subscriptions (admin-only)
+- `GET /admin/agents` — Platform-wide agent stats: runs, by type/sector (admin-only)
+- `GET /admin/comms` — Communication stats: by type/direction/sector (admin-only)
+- `GET /admin/health` — System health: DB status, pool stats, uptime, memory (admin-only)
+- `DELETE /account` — Delete user account and all associated data (GDPR Article 17)
+- `GET /referrals/code` — Get or generate user's unique referral code (e.g. GORIGO-ABC123)
+- `POST /referrals/apply` — Apply a referral code `{referralCode}` (one per user, validated)
+- `GET /referrals/stats` — Get referral statistics (code, totalReferrals, completedReferrals, rewardsEarned)
+- `POST /notifications/push-token` — Register Expo push token `{token, platform}`
+- `DELETE /notifications/push-token` — Remove push token `{token}`
+- `GET /notifications/preferences?businessId=` — Get notification preferences per business
+- `PUT /notifications/preferences` — Update notification preferences `{businessId, agentActivity?, communications?, billingAlerts?}`
+- `GET /reports/summary` — Aggregated report data for a date range (agent activity, comms, usage, conversations)
+- `GET /reports/csv/agent-logs` — Export agent logs as CSV
+- `GET /reports/csv/communications` — Export communications as CSV
+- `GET /reports/csv/usage-events` — Export usage events as CSV
+- `POST /team/invite` — Create team invite `{businessId, email?, role}` (owner only)
+- `POST /team/join` — Join team with invite code `{code, displayName?}`
+- `GET /team/members?businessId=` — List team members (viewer+)
+- `PATCH /team/members/:memberId` — Update member role `{role}` (owner only)
+- `DELETE /team/members/:memberId` — Remove member (owner only)
+- `GET /team/invites?businessId=` — List pending invites (owner only)
+- `DELETE /team/invites/:inviteId` — Revoke invite (owner only)
+- `GET /team/activity?businessId=&limit=` — Team activity feed (viewer+)
+- `GET /team/role?businessId=` — Get current user's role for a business
+- `POST /contacts` — Create a single contact `{businessId, name, phone?, email?, tags?, consentGiven?, dncListed?}`
+- `POST /contacts/import` — Bulk import contacts `{businessId, contacts[]}`
+- `GET /contacts?businessId=` — List contacts for a business
+- `DELETE /contacts/:id` — Delete a contact
+- `POST /contact-lists` — Create a contact list `{businessId, name, contactIds?}`
+- `GET /contact-lists?businessId=` — List contact lists for a business
+- `POST /campaigns` — Create a campaign draft `{businessId, name, type?, listId?, messageTemplate?, budgetCapPence?}`
+- `PATCH /campaigns/:id` — Update a draft campaign
+- `GET /campaigns?businessId=` — List campaigns for a business
+- `GET /campaigns/:id` — Campaign detail with message log
+- `POST /campaigns/:id/schedule` — Schedule a draft campaign `{scheduledStart?}`
+- `POST /campaigns/:id/pause` — Pause a running/scheduled campaign
+- `POST /campaigns/:id/resume` — Resume a paused campaign
+- `POST /campaigns/:id/cancel` — Cancel a campaign
+
+## DB Schema
+
+- `businesses` table: id, name, sector, country, is_active, created_at
+- `api_keys` table: id, provider, encrypted_key, masked_key, created_at
+- `agents` table: id, user_id, business_id, type, name, description, system_prompt, is_built_in, is_active, last_run_at, tool_access (jsonb, string[]), schedule_type (none/hourly/daily/weekly/custom), schedule_time (HH:MM), schedule_day (0-6), schedule_interval (minutes), next_run_at, last_scheduled_run_at, created_at
+- `agent_logs` table: id, agent_id, user_id, business_id, summary, created_at
+- `agent_pending_actions` table: id, agent_id, user_id, business_id, action_type, action_description, action_payload (jsonb), tool_name, function_name, status (pending/approved/rejected/expired), result_payload (jsonb), expires_at, resolved_at, created_at
+- `tool_connections` table: id, user_id, tool_name (unique per user), credential_type, encrypted_credentials, status, scopes (jsonb), metadata (jsonb), last_used_at, created_at, updated_at
+- `usage_events` table: id, user_id, business_id, event_type, metadata (jsonb), created_at
+- `user_subscriptions` table: id, user_id (unique), plan_id, period_start, period_end, status, created_at, updated_at
+- `referrals` table: id, referrer_user_id, referred_user_id (unique), referral_code, status (pending/completed/rewarded), reward_type, reward_applied, created_at
+- `user_referral_codes` table: user_id (PK), referral_code (unique), created_at
+- `push_tokens` table: id, user_id, token, platform, created_at, updated_at — unique(user_id, token)
+- `notification_preferences` table: id, user_id, business_id, agent_activity, communications, billing_alerts, created_at, updated_at — unique(user_id, business_id)
+- `team_members` table: id, user_id, business_id, role (owner/manager/viewer), invited_by, display_name, status (active/removed), created_at, updated_at
+- `contacts` table: id, business_id, user_id, name, phone, email, tags (jsonb), consent_given, dnc_listed, created_at
+- `contact_lists` table: id, business_id, user_id, name, contact_count, created_at
+- `contact_list_members` table: list_id, contact_id
+- `campaigns` table: id, business_id, user_id, name, type (sms/email), list_id, message_template, status (draft/scheduled/running/paused/completed/cancelled), scheduled_start, calling_hours_start, calling_hours_end, timezone, budget_cap_pence, budget_spent_pence, pacing_per_minute, sent_count, delivered_count, failed_count, replied_count, created_at, updated_at
+- `campaign_messages` table: id, campaign_id, contact_id, status (pending/sent/delivered/failed), sent_at, delivered_at, cost, created_at
+- `team_invites` table: id, code (unique 8-char), business_id, role, email, invited_by, status (pending/accepted/expired/revoked), expires_at, accepted_by, created_at
+- `team_activity` table: id, business_id, user_id, action, details (jsonb), created_at
+
+## Usage & Billing
+
+- **Plans**: Free (50 events/mo), Pro (500/mo, £19), Unlimited (-1, £49)
+- **Event types**: orchestrate, transcribe, agent_run, auto_reply, call_summary
+- **Enforcement**: `checkUsageLimit()` called before AI endpoints; returns 429 with `{error:"usage_limit", upgrade:true}` when exceeded
+- **Webhooks** (auto_reply, call_summary): recorded but not limit-checked (system-initiated)
+- **Helper functions**: `recordUsage()`, `checkUsageLimit()`, `getUsageSummary()`, `getUsageHistory()`, `upgradePlan()` in `artifacts/api-server/src/lib/usage.ts`
+
+## Mobile App Screens
+
+- `app/_layout.tsx` — Root layout (fonts, QueryClient, AppProvider, push notification registration)
+- `app/onboarding.tsx` — 3-step onboarding (Welcome → BYOK Keys → Business Profile)
+- `app/(tabs)/_layout.tsx` — 4-tab layout (Dashboard, Agents, Comms, Settings)
+- `app/(tabs)/index.tsx` — Dashboard with KPIs, sector insights, quick actions, agent status
+- `app/reports.tsx` — Reports screen (report type selection, date range picker, CSV export, aggregated stats)
+- `app/(tabs)/agents.tsx` — AI Agents (Marketing, Ops, Comms, Finance, Strategy)
+- `app/(tabs)/communication.tsx` — Communications (Telnyx calls/SMS)
+- `app/(tabs)/settings.tsx` — Businesses, API keys, connected tools, notification preferences, usage & billing
+- `hooks/usePushNotifications.ts` — Push notification registration & deep-link handling on tap
+
+## TypeScript & Composite Projects
+
+Every package extends `tsconfig.base.json` (composite: true). The root `tsconfig.json` lists all packages as project references.
+
+- **Always typecheck from the root**: `pnpm run typecheck`
+- `emitDeclarationOnly` — only `.d.ts` files during typecheck; JS handled by esbuild/tsx/vite
+- Run codegen: `pnpm --filter @workspace/api-spec run codegen`
+- Push DB schema: `pnpm --filter @workspace/db run push-force`
+
+## Packages
+
+## Tool Connection System (BYOA)
+
+- **Architecture**: Modular tool registry at `artifacts/api-server/src/lib/tools/`
+- **Adding a new tool**: Create a `ToolDefinition` object and call `registerTool()` at server startup
+- **Tool interface**: Each tool declares name, description, credentialType, functions (with JSON Schema params + execute method)
+- **Function calling**: Orchestrate endpoint supports OpenAI `tools` param and Anthropic `tool_use`. Tool calls loop up to 5 rounds.
+- **Credentials**: Stored encrypted (AES-256-GCM) in `tool_connections` table; decrypted on-the-fly during tool execution
+- **Dynamic system prompt**: When a user has connected tools, the system prompt is enhanced to list available tool functions
+- **SSE status updates**: During tool execution, `tool_status` events are streamed to the mobile app (e.g. "Using gmail...")
+
+### `artifacts/api-server` (`@workspace/api-server`)
+
+Express 5 API server. Routes in `src/routes/`. Crypto utility for AES-256-GCM at `src/lib/crypto.ts`. Tool registry at `src/lib/tools/`.
+
+**Google Integration**: OAuth 2.0 flow at `src/routes/google.ts`, tool execution logic at `src/lib/googleTools.ts`. Requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` env vars. The orchestrate route (`src/routes/orchestrate.ts`) supports function calling with Google tools when connected. Dependencies: `googleapis`.
+
+**Notion Integration**: OAuth 2.0 flow at `src/routes/notion.ts`, auth helpers at `src/lib/notionAuth.ts`, tool definition at `src/lib/tools/builtins/notion.ts`. Requires `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, `NOTION_REDIRECT_URI` env vars. Functions: search_pages, create_page, read_page, list_databases, query_database, add_database_entry. Credentials stored in `tool_connections` table.
+
+**Trello Integration**: API key + token tool at `src/lib/tools/builtins/trello.ts`. No OAuth required — users provide API key and token as JSON `{"key": "...", "token": "..."}`. Functions: list_boards, list_board_lists, list_cards, create_card, move_card, search_cards. Uses Trello REST API v1.
+
+**Stripe Integration**: Registered as a builtin tool (`src/lib/tools/builtins/stripe.ts`). Functions: get_balance, list_payments, list_invoices, create_invoice, get_customer, list_customers. Uses Stripe REST API with user's secret key (api_key credential type). Currency defaults to GBP.
+
+**Stripe Checkout (Payment Processing)**: Subscription billing via Stripe Checkout at `src/lib/stripe.ts` and `src/lib/usage.ts`. Requires `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`, `STRIPE_UNLIMITED_PRICE_ID` env vars. POST /usage/upgrade creates a Stripe Checkout session for paid plans (Pro £19/mo, Unlimited £49/mo) and returns checkoutUrl. POST /webhooks/stripe handles checkout.session.completed, customer.subscription.updated, customer.subscription.deleted events. GET /usage/billing-portal returns Stripe Customer Portal URL. DB columns: user_subscriptions.stripe_customer_id, user_subscriptions.stripe_subscription_id.
+
+**Xero Integration**: OAuth 2.0 flow at `src/routes/xero.ts`, auth logic at `src/lib/xeroAuth.ts`, tool at `src/lib/tools/builtins/xero.ts`. Requires `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI` env vars. Functions: get_organisation, list_invoices, create_invoice, list_expenses, get_vat_return, list_bank_transactions. Stores OAuth tokens as encrypted JSON in tool_connections table. Automatic token refresh before execution.
+
+**Slack Integration**: OAuth 2.0 flow at `src/routes/slack.ts`, auth logic at `src/lib/slackAuth.ts`. Tool definition at `src/lib/tools/builtins/slack.ts` with functions: list_channels, read_channel_messages, send_message, set_reminder, search_messages. Requires `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_REDIRECT_URI` env vars. Scopes: channels:read, channels:history, groups:read, groups:history, chat:write, reminders:write, users:read, search:read, im:write.
+
+**Agent Scheduling Engine**: Background scheduler at `src/lib/scheduler.ts`. Checks every 60s for agents with `next_run_at` in the past and `is_active = true`. Runs agents with full tool access (same as orchestrate endpoint). Significant actions (send_email, create_invoice, etc.) are queued as pending approvals in `agent_pending_actions` table instead of executing immediately. Approvals expire after 24h. Max 3 concurrent scheduled runs. Schedule types: none, hourly, daily (at specific time), weekly (day + time), custom (interval in minutes). Mobile UI: Schedule picker on agent detail screen, approval cards with approve/reject buttons, schedule status badges on agent list.
+
+**WhatsApp Business Integration**: Tool definition at `src/lib/tools/builtins/whatsapp.ts` with functions: send_message, send_template, list_message_templates. Uses WhatsApp Cloud API (Meta). Credentials stored as JSON `{"token":"...","phone_number_id":"..."}` via the standard tool connection system (api_key type). No env vars needed — users provide their own Meta access token and phone number ID.
+
+**Facebook/Instagram Integration**: Tool definition at `src/lib/tools/builtins/facebook.ts` with functions: list_pages, publish_post, list_recent_posts, get_page_insights. Uses Meta Graph API v21.0 with Page Access Token. Credentials stored as JSON `{"access_token":"EAA...","page_id":"123456"}`. Supports posting to Facebook Pages, viewing recent posts, and page analytics.
+
+**LinkedIn Integration**: Tool definition at `src/lib/tools/builtins/linkedin.ts` with functions: get_profile, create_post, list_posts. Uses LinkedIn API v2 (UGC Posts). Credentials stored as JSON `{"access_token":"AQV...","person_urn":"urn:li:person:abc123"}` or just the access token string. Supports posting to personal profiles and company pages.
+
+**X (Twitter) Integration**: Tool definition at `src/lib/tools/builtins/twitter.ts` with functions: get_profile, create_tweet, list_tweets, search_tweets. Uses X API v2 with Bearer Token for reads and OAuth User Access Token for posting. Credentials stored as JSON `{"bearer_token":"AAAA...","access_token":"123-abc"}`. Character limit enforced (280).
+
+### `artifacts/mobile` (`@workspace/mobile`)
+
+Expo mobile app. Context at `context/AppContext.tsx`. Colors at `constants/colors.ts`.
+
+**Offline Mode & Command Queuing**:
+- `hooks/useNetworkStatus.ts` — Network connectivity monitor using `@react-native-community/netinfo`
+- `hooks/useOfflineQueue.ts` — Persistent command queue (AsyncStorage) for offline commands with sequential sync
+- `hooks/useDataCache.ts` — Local data caching (24h TTL) for conversations, agents, communications, businesses
+- `components/OfflineBanner.tsx` — Offline banner, queue badge, and per-message sync status indicators
+- `context/AppContext.tsx` — Exposes `isOnline` and `onConnectivityChange` from network status hook
+- When offline: commands are queued with "pending" indicator; cached data is shown on all tabs
+- When back online: queued commands process sequentially through `/api/orchestrate`; results appear in feed
+
+**Session Modes (Voice-Guided)**:
+The orchestrate route supports guided multi-step session modes activated by voice keywords. Available modes:
+- **Deep Research** (6 steps): topic → scope → questions → analysis → synthesis → brief
+- **Strategy SWOT** (5 steps): strengths → weaknesses → opportunities → threats → action plan
+- **Brainstorm** (4 steps): topic → diverge → converge → rank
+- **Business Plan** (5 steps): overview → market → model → operations → final plan
+
+Session state stored in `mode_sessions` DB table. Mode templates defined in `artifacts/api-server/src/lib/sessionModes.ts`. The mobile UI shows a progress bar with step indicator and exit button during active sessions.
+
+### `lib/db` (`@workspace/db`)
+
+Drizzle ORM with PostgreSQL. Exports `db`, `./schema`.
+
+### `lib/api-spec` (`@workspace/api-spec`)
+
+OpenAPI 3.1 spec + Orval codegen. Generates into `api-client-react` and `api-zod`.
+
+### `lib/api-client-react` (`@workspace/api-client-react`)
+
+Generated React Query hooks: `useListBusinesses`, `useCreateBusiness`, `useUpdateBusiness`, `useDeleteBusiness`, `useGetBusinessInsights`, `useListKeys`, `useCreateKey`, `useDeleteKey`.
+
+### `scripts` (`@workspace/scripts`)
+
+Utility scripts.
+
+## External Dependencies
+
+- **Large Language Models (LLMs):**
+    - OpenAI
+    - Anthropic
+- **Communication:**
+    - Telnyx (for calls/SMS)
+    - WhatsApp Business Cloud API (for messaging)
+- **Payment Processing:**
+    - Stripe (for subscriptions, Checkout, and Customer Portal)
+- **Document Management & Knowledge Bases:**
+    - Notion API
+    - Google (Gmail, Sheets, Calendar APIs)
+    - Xero API
+- **Social Media & Marketing:**
+    - Facebook/Instagram Graph API
+    - LinkedIn API
+    - X (Twitter) API
+- **Collaboration & Productivity:**
+    - Slack API
+- **Database Extensions:**
+    - `pgvector` (for embeddings)
+- **Mobile Utilities:**
+    - `@react-native-community/netinfo` (for network status)
+    - `@react-native-async-storage/async-storage` (for persistent storage)
+- **Monorepo Tools:**
+    - pnpm workspaces
+- **API Specification & Generation:**
+    - OpenAPI 3.1
+    - Orval
+- **Server Framework:**
+    - Express 5
+- **ORM:**
+    - Drizzle ORM
+- **Validation:**
+    - Zod
+- **Type Checking:**
+    - TypeScript 5.9
+
+## Production Review Fixes Applied
+
+### P0 Fixes (Critical)
+- **Campaign wallet integration**: Campaign executor now calls `debitWallet()` for every SMS/call sent, with `checkWalletBalance()` pre-check. Campaign auto-pauses if wallet is depleted mid-batch.
+- **Realtime call mid-call billing**: OpenAI Realtime path now has a 60-second billing interval (matching Gemini path). Checks balance each minute and terminates call if wallet empty. End-of-session billing only covers remaining unbilled minutes.
+- **Billing portal device ID security**: Device IDs no longer passed in Stripe redirect URLs. Stored in sessionStorage instead. URL is cleaned on initial load.
+
+### P1 Fixes
+- **Low-balance notifications**: `debitWallet()` now triggers push notifications when balance drops below £5 (warning) or £1 (critical).
+- **TTS interruption on wake word**: `stopSpeaking()` is called before recording starts in both the wake word handler and manual mic press.
+- **Campaign completion notification**: Push notification sent when a campaign finishes all messages.
+- **AI call max duration**: Both Gemini and OpenAI Realtime sessions enforce a 30-minute maximum call duration.
+- **Orphan session sweeper**: Background interval (every 5 minutes) cleans up any call sessions older than 35 minutes that weren't properly terminated.
+
+### P2 Fixes
+- **E.164 phone validation**: Single contact creation validates phone number format (E.164: `+447700900000`). Bulk import silently skips invalid phone numbers and reports them as `skipped`.
+- **STOP/unsubscribe handling**: Inbound SMS with STOP/QUIT/UNSUBSCRIBE/CANCEL/END keywords automatically marks the contact as DNC-listed and sends a confirmation reply. No further messages will be sent to DNC contacts.
+- **PECR consent timestamps**: Both `contacts` and `telnyx_configs` tables now record `consent_at` timestamp when consent is granted. Consent timestamps are set on creation (if consent=true) and on toggle (only when changing from false→true).
+- **Team join notifications**: Business owner receives a push notification when a new team member joins via invite code.
+- **Knowledge processing notifications**: Users get a push notification when document processing completes (success or failure).
+- **Contact phone index**: Added composite index on `(phone, business_id)` for efficient DNC lookups by inbound SMS.

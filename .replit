@@ -24,3 +24,9 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+ENCRYPTION_KEY = "9409ec623a272a8faed168714600cf64ea22ae7e5ca665c6dcaca4b3b3910fae"
+ADMIN_TOKEN = "ed6e39cc07514c7661953a944dd64c5eff6e2d263b0eb54711b09563dc9d67f1"

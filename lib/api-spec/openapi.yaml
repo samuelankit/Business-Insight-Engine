@@ -3,20 +3,52 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: GoRigo AI Business Operating System API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: businesses
+    description: Business management
+  - name: keys
+    description: API key management
+  - name: voice
+    description: Voice and TTS
+  - name: agents
+    description: AI agent management
+  - name: orchestrate
+    description: Voice command orchestration
+  - name: tools
+    description: Tool connections
+  - name: usage
+    description: Usage and billing
+  - name: team
+    description: Team management
+  - name: contacts
+    description: Contact management
+  - name: campaigns
+    description: Campaign management
+  - name: notifications
+    description: Push notifications
+  - name: referrals
+    description: Referral system
+  - name: reports
+    description: Reports and analytics
+  - name: knowledge
+    description: Knowledge base
+  - name: sessions
+    description: Guided sessions
+  - name: admin
+    description: Admin console
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +56,1546 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ───── Businesses ─────
+  /businesses:
+    get:
+      operationId: listBusinesses
+      tags: [businesses]
+      summary: List all businesses for the current user
+      responses:
+        "200":
+          description: List of businesses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Business"
+    post:
+      operationId: createBusiness
+      tags: [businesses]
+      summary: Create a new business
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBusinessRequest"
+      responses:
+        "201":
+          description: Business created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Business"
+
+  /businesses/{id}:
+    put:
+      operationId: updateBusiness
+      tags: [businesses]
+      summary: Update a business
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBusinessRequest"
+      responses:
+        "200":
+          description: Business updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Business"
+    delete:
+      operationId: deleteBusiness
+      tags: [businesses]
+      summary: Delete a business
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Business deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /businesses/{id}/insights:
+    get:
+      operationId: getBusinessInsights
+      tags: [businesses]
+      summary: Get sector-specific automation insights
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Business insights
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessInsights"
+
+  # ───── API Keys ─────
+  /keys:
+    get:
+      operationId: listKeys
+      tags: [keys]
+      summary: List API keys (masked)
+      responses:
+        "200":
+          description: API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiKey"
+    post:
+      operationId: saveKey
+      tags: [keys]
+      summary: Save or update an API key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveKeyRequest"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKey"
+
+  /keys/{id}:
+    delete:
+      operationId: deleteKey
+      tags: [keys]
+      summary: Delete an API key
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # ───── Voice ─────
+  /tts:
+    post:
+      operationId: synthesizeSpeech
+      tags: [voice]
+      summary: Server-side TTS synthesis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TtsRequest"
+      responses:
+        "200":
+          description: Audio stream
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+
+  /voice-preferences:
+    get:
+      operationId: getVoicePreferences
+      tags: [voice]
+      summary: Get user voice preferences
+      responses:
+        "200":
+          description: Voice preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoicePreferences"
+    put:
+      operationId: updateVoicePreferences
+      tags: [voice]
+      summary: Update user voice preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoicePreferences"
+      responses:
+        "200":
+          description: Preferences updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoicePreferences"
+
+  /transcribe:
+    post:
+      operationId: transcribeAudio
+      tags: [voice]
+      summary: Transcribe audio (usage-metered)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                businessId:
+                  type: string
+      responses:
+        "200":
+          description: Transcription result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranscribeResponse"
+
+  # ───── Orchestrate ─────
+  /orchestrate:
+    post:
+      operationId: orchestrate
+      tags: [orchestrate]
+      summary: Voice command orchestration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrchestrateRequest"
+      responses:
+        "200":
+          description: Orchestration result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrchestrateResponse"
+
+  # ───── Sessions ─────
+  /sessions/active:
+    get:
+      operationId: getActiveSession
+      tags: [sessions]
+      summary: Check for active guided session
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Active session or null
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+
+  /sessions/exit:
+    post:
+      operationId: exitSession
+      tags: [sessions]
+      summary: Exit/cancel active guided session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                businessId:
+                  type: string
+              required: [businessId]
+      responses:
+        "200":
+          description: Session exited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /sessions/history:
+    get:
+      operationId: getSessionHistory
+      tags: [sessions]
+      summary: List all sessions for a business
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Session history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionSummary"
+
+  # ───── Agents ─────
+  /agents/templates:
+    get:
+      operationId: listAgentTemplates
+      tags: [agents]
+      summary: List predefined agent templates
+      responses:
+        "200":
+          description: Agent templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentTemplate"
+
+  /agents/approvals/pending:
+    get:
+      operationId: listPendingApprovals
+      tags: [agents]
+      summary: List pending agent approval requests
+      parameters:
+        - name: businessId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pending approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentApproval"
+
+  /agents/approvals/{actionId}/approve:
+    post:
+      operationId: approveAgentAction
+      tags: [agents]
+      summary: Approve and execute a pending agent action
+      parameters:
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Action approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /agents/approvals/{actionId}/reject:
+    post:
+      operationId: rejectAgentAction
+      tags: [agents]
+      summary: Reject a pending agent action
+      parameters:
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Action rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /agents:
+    get:
+      operationId: listAgents
+      tags: [agents]
+      summary: List agents for a business
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+    post:
+      operationId: createAgent
+      tags: [agents]
+      summary: Create a custom agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentRequest"
+      responses:
+        "201":
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+
+  /agents/{agentId}:
+    patch:
+      operationId: updateAgent
+      tags: [agents]
+      summary: Update an agent
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentRequest"
+      responses:
+        "200":
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+
+  /agents/{agentId}/run:
+    post:
+      operationId: runAgent
+      tags: [agents]
+      summary: Run an AI agent
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                businessId:
+                  type: string
+              required: [businessId]
+      responses:
+        "200":
+          description: Agent run result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRunResult"
+
+  /agents/{agentId}/test-run:
+    post:
+      operationId: testRunAgent
+      tags: [agents]
+      summary: Test run agent in preview mode
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                businessId:
+                  type: string
+              required: [businessId]
+      responses:
+        "200":
+          description: Test run result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRunResult"
+
+  /agents/{agentId}/logs:
+    get:
+      operationId: getAgentLogs
+      tags: [agents]
+      summary: Get logs for an agent
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Agent logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentLog"
+
+  # ───── Tools ─────
+  /tools/available:
+    get:
+      operationId: listAvailableTools
+      tags: [tools]
+      summary: List all registered tools with connection status
+      responses:
+        "200":
+          description: Available tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ToolInfo"
+
+  /tools/connections:
+    get:
+      operationId: listToolConnections
+      tags: [tools]
+      summary: List user's connected tools
+      responses:
+        "200":
+          description: Tool connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ToolConnection"
+    post:
+      operationId: connectTool
+      tags: [tools]
+      summary: Connect a tool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectToolRequest"
+      responses:
+        "201":
+          description: Tool connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolConnection"
+
+  /tools/connections/{id}:
+    delete:
+      operationId: disconnectTool
+      tags: [tools]
+      summary: Disconnect a tool
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tool disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # ───── Usage & Billing ─────
+  /usage/summary:
+    get:
+      operationId: getUsageSummary
+      tags: [usage]
+      summary: Current period usage summary
+      responses:
+        "200":
+          description: Usage summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageSummary"
+
+  /usage/history:
+    get:
+      operationId: getUsageHistory
+      tags: [usage]
+      summary: Past periods usage history
+      responses:
+        "200":
+          description: Usage history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UsagePeriod"
+
+  /usage/plans:
+    get:
+      operationId: listPlans
+      tags: [usage]
+      summary: List available subscription plans
+      responses:
+        "200":
+          description: Plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+
+  /usage/upgrade:
+    post:
+      operationId: upgradePlan
+      tags: [usage]
+      summary: Switch plan or create Stripe Checkout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpgradePlanRequest"
+      responses:
+        "200":
+          description: Upgrade result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpgradePlanResponse"
+
+  /usage/billing-portal:
+    get:
+      operationId: getBillingPortal
+      tags: [usage]
+      summary: Get Stripe Customer Portal URL
+      responses:
+        "200":
+          description: Billing portal URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingPortalResponse"
+
+  /usage/wallet:
+    get:
+      operationId: getWallet
+      tags: [usage]
+      summary: Get wallet balance and recent transactions
+      responses:
+        "200":
+          description: Wallet info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletInfo"
+
+  /usage/wallet/topup:
+    post:
+      operationId: topUpWallet
+      tags: [usage]
+      summary: Top up wallet balance via Stripe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TopUpRequest"
+      responses:
+        "200":
+          description: Checkout URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopUpResponse"
+
+  # ───── Team ─────
+  /team/invite:
+    post:
+      operationId: createTeamInvite
+      tags: [team]
+      summary: Create a team invite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInviteRequest"
+      responses:
+        "201":
+          description: Invite created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamInvite"
+
+  /team/join:
+    post:
+      operationId: joinTeam
+      tags: [team]
+      summary: Join a team with an invite code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinTeamRequest"
+      responses:
+        "200":
+          description: Joined team
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+
+  /team/members:
+    get:
+      operationId: listTeamMembers
+      tags: [team]
+      summary: List team members
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Team members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamMember"
+
+  /team/members/{memberId}:
+    patch:
+      operationId: updateTeamMember
+      tags: [team]
+      summary: Update member role
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum: [owner, manager, viewer]
+              required: [role]
+      responses:
+        "200":
+          description: Member updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+    delete:
+      operationId: removeTeamMember
+      tags: [team]
+      summary: Remove a team member
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Member removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /team/invites:
+    get:
+      operationId: listTeamInvites
+      tags: [team]
+      summary: List pending invites
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Team invites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamInvite"
+
+  /team/invites/{inviteId}:
+    delete:
+      operationId: revokeTeamInvite
+      tags: [team]
+      summary: Revoke a team invite
+      parameters:
+        - name: inviteId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Invite revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /team/activity:
+    get:
+      operationId: getTeamActivity
+      tags: [team]
+      summary: Team activity feed
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Team activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamActivity"
+
+  /team/role:
+    get:
+      operationId: getMyTeamRole
+      tags: [team]
+      summary: Get current user's role for a business
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: My role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamRoleResponse"
+
+  # ───── Contacts ─────
+  /contacts:
+    get:
+      operationId: listContacts
+      tags: [contacts]
+      summary: List contacts for a business
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Contacts list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactsListResponse"
+    post:
+      operationId: createContact
+      tags: [contacts]
+      summary: Create a single contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContactRequest"
+      responses:
+        "201":
+          description: Contact created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+
+  /contacts/import:
+    post:
+      operationId: importContacts
+      tags: [contacts]
+      summary: Bulk import contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportContactsRequest"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportContactsResponse"
+
+  /contacts/{id}:
+    delete:
+      operationId: deleteContact
+      tags: [contacts]
+      summary: Delete a contact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Contact deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # ───── Contact Lists ─────
+  /contact-lists:
+    get:
+      operationId: listContactLists
+      tags: [contacts]
+      summary: List contact lists
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Contact lists
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContactList"
+    post:
+      operationId: createContactList
+      tags: [contacts]
+      summary: Create a contact list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContactListRequest"
+      responses:
+        "201":
+          description: Contact list created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactList"
+
+  # ───── Campaigns ─────
+  /campaigns:
+    get:
+      operationId: listCampaigns
+      tags: [campaigns]
+      summary: List campaigns for a business
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Campaign"
+    post:
+      operationId: createCampaign
+      tags: [campaigns]
+      summary: Create a campaign draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCampaignRequest"
+      responses:
+        "201":
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}:
+    get:
+      operationId: getCampaign
+      tags: [campaigns]
+      summary: Get campaign detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Campaign detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+    patch:
+      operationId: updateCampaign
+      tags: [campaigns]
+      summary: Update a draft campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCampaignRequest"
+      responses:
+        "200":
+          description: Campaign updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}/schedule:
+    post:
+      operationId: scheduleCampaign
+      tags: [campaigns]
+      summary: Schedule a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scheduledStart:
+                  type: string
+      responses:
+        "200":
+          description: Campaign scheduled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}/pause:
+    post:
+      operationId: pauseCampaign
+      tags: [campaigns]
+      summary: Pause a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Campaign paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}/resume:
+    post:
+      operationId: resumeCampaign
+      tags: [campaigns]
+      summary: Resume a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Campaign resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}/cancel:
+    post:
+      operationId: cancelCampaign
+      tags: [campaigns]
+      summary: Cancel a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Campaign cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  # ───── Notifications ─────
+  /notifications/push-token:
+    post:
+      operationId: registerPushToken
+      tags: [notifications]
+      summary: Register Expo push token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushTokenRequest"
+      responses:
+        "200":
+          description: Token registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+    delete:
+      operationId: removePushToken
+      tags: [notifications]
+      summary: Remove push token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+              required: [token]
+      responses:
+        "200":
+          description: Token removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /notifications/preferences:
+    get:
+      operationId: getNotificationPreferences
+      tags: [notifications]
+      summary: Get notification preferences per business
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Notification preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPreferences"
+    put:
+      operationId: updateNotificationPreferences
+      tags: [notifications]
+      summary: Update notification preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNotificationPreferencesRequest"
+      responses:
+        "200":
+          description: Preferences updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPreferences"
+
+  # ───── Referrals ─────
+  /referrals/code:
+    get:
+      operationId: getReferralCode
+      tags: [referrals]
+      summary: Get or generate user's referral code
+      responses:
+        "200":
+          description: Referral code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralCodeResponse"
+
+  /referrals/apply:
+    post:
+      operationId: applyReferralCode
+      tags: [referrals]
+      summary: Apply a referral code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                referralCode:
+                  type: string
+              required: [referralCode]
+      responses:
+        "200":
+          description: Referral applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /referrals/stats:
+    get:
+      operationId: getReferralStats
+      tags: [referrals]
+      summary: Get referral statistics
+      responses:
+        "200":
+          description: Referral stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralStats"
+
+  # ───── Reports ─────
+  /reports/summary:
+    get:
+      operationId: getReportSummary
+      tags: [reports]
+      summary: Aggregated report data
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Report summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportSummary"
+
+  # ───── Knowledge Base ─────
+  /knowledge:
+    get:
+      operationId: listKnowledge
+      tags: [knowledge]
+      summary: List knowledge documents for a business
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Knowledge documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeDocument"
+    post:
+      operationId: uploadKnowledge
+      tags: [knowledge]
+      summary: Upload a document to the knowledge base
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                businessId:
+                  type: string
+                title:
+                  type: string
+      responses:
+        "201":
+          description: Document uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocument"
+
+  /knowledge/{id}:
+    delete:
+      operationId: deleteKnowledge
+      tags: [knowledge]
+      summary: Delete a knowledge document
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # ───── Account ─────
+  /account:
+    delete:
+      operationId: deleteAccount
+      tags: [admin]
+      summary: Delete user account and all data (GDPR Article 17)
+      responses:
+        "200":
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/device:
+    post:
+      operationId: authenticateDevice
+      tags: [admin]
+      summary: Authenticate or register a device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceAuthRequest"
+      responses:
+        "200":
+          description: Authentication result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceAuthResponse"
+
+  # ───── Admin ─────
+  /admin/check:
+    get:
+      operationId: checkAdminAccess
+      tags: [admin]
+      summary: Check if current device is the platform admin
+      responses:
+        "200":
+          description: Admin check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminCheckResponse"
+
+  /admin/overview:
+    get:
+      operationId: getAdminOverview
+      tags: [admin]
+      summary: Platform stats (admin only)
+      responses:
+        "200":
+          description: Platform overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOverview"
+
+  /admin/users:
+    get:
+      operationId: listAdminUsers
+      tags: [admin]
+      summary: Paginated user list (admin only)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUsersResponse"
+
+  /admin/revenue:
+    get:
+      operationId: getAdminRevenue
+      tags: [admin]
+      summary: Revenue breakdown (admin only)
+      responses:
+        "200":
+          description: Revenue data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRevenue"
+
+  /admin/health:
+    get:
+      operationId: getAdminHealth
+      tags: [admin]
+      summary: System health (admin only)
+      responses:
+        "200":
+          description: System health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemHealth"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +1603,1006 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: ["string", "null"]
+      required: [success]
+
+    # ── Business ──
+    Business:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sector:
+          type: ["string", "null"]
+        country:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+      required: [id, name, country, isActive, createdAt]
+
+    CreateBusinessRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        sector:
+          type: ["string", "null"]
+        country:
+          type: string
+        isActive:
+          type: ["boolean", "null"]
+      required: [name, country]
+
+    UpdateBusinessRequest:
+      type: object
+      properties:
+        name:
+          type: ["string", "null"]
+        sector:
+          type: ["string", "null"]
+        country:
+          type: ["string", "null"]
+        isActive:
+          type: ["boolean", "null"]
+
+    BusinessInsights:
+      type: object
+      properties:
+        sector:
+          type: string
+        recommendations:
+          type: array
+          items:
+            type: string
+        automationOpportunities:
+          type: array
+          items:
+            type: string
+      required: [sector, recommendations, automationOpportunities]
+
+    # ── API Keys ──
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        maskedKey:
+          type: string
+        createdAt:
+          type: string
+      required: [id, provider, maskedKey, createdAt]
+
+    SaveKeyRequest:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [openai, anthropic, elevenlabs]
+        key:
+          type: string
+      required: [provider, key]
+
+    # ── Voice ──
+    TtsRequest:
+      type: object
+      properties:
+        text:
+          type: string
+        provider:
+          type: ["string", "null"]
+        voiceName:
+          type: ["string", "null"]
+        speechRate:
+          type: ["number", "null"]
+      required: [text]
+
+    VoicePreferences:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [google, elevenlabs]
+        voiceName:
+          type: ["string", "null"]
+        speechRate:
+          type: ["number", "null"]
+      required: [provider]
+
+    TranscribeResponse:
+      type: object
+      properties:
+        transcript:
+          type: string
+        confidence:
+          type: ["number", "null"]
+      required: [transcript]
+
+    # ── Orchestrate ──
+    OrchestrateRequest:
+      type: object
+      properties:
+        message:
+          type: string
+        businessId:
+          type: string
+        sessionMode:
+          type: ["string", "null"]
+          enum: [deep_research, strategy_swot, brainstorm, business_plan, "null"]
+        provider:
+          type: ["string", "null"]
+          enum: [openai, anthropic, "null"]
+      required: [message, businessId]
+
+    OrchestrateResponse:
+      type: object
+      properties:
+        response:
+          type: string
+        sessionMode:
+          type: ["string", "null"]
+        sessionStep:
+          type: ["integer", "null"]
+        sessionTotalSteps:
+          type: ["integer", "null"]
+        toolsUsed:
+          type: array
+          items:
+            type: string
+        usage:
+          type: ["integer", "null"]
+      required: [response, toolsUsed]
+
+    # ── Sessions ──
+    SessionStatus:
+      type: object
+      properties:
+        active:
+          type: boolean
+        sessionId:
+          type: ["string", "null"]
+        mode:
+          type: ["string", "null"]
+        step:
+          type: ["integer", "null"]
+        totalSteps:
+          type: ["integer", "null"]
+        stepLabel:
+          type: ["string", "null"]
+      required: [active]
+
+    SessionSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        mode:
+          type: string
+        businessId:
+          type: string
+        completedAt:
+          type: ["string", "null"]
+        status:
+          type: string
+        createdAt:
+          type: string
+      required: [id, mode, businessId, status, createdAt]
+
+    # ── Agents ──
+    AgentTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        systemPrompt:
+          type: string
+        suggestedTools:
+          type: array
+          items:
+            type: string
+      required: [id, name, description, type, systemPrompt, suggestedTools]
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        type:
+          type: string
+        isActive:
+          type: boolean
+        isBuiltIn:
+          type: boolean
+        businessId:
+          type: string
+        scheduleType:
+          type: string
+          enum: [none, hourly, daily, weekly, custom]
+        scheduleTime:
+          type: ["string", "null"]
+        scheduleDay:
+          type: ["integer", "null"]
+        scheduleInterval:
+          type: ["integer", "null"]
+        nextRunAt:
+          type: ["string", "null"]
+        lastRunAt:
+          type: ["string", "null"]
+        toolAccess:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+      required: [id, name, type, isActive, isBuiltIn, businessId, scheduleType, toolAccess, createdAt]
+
+    CreateAgentRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        systemPrompt:
+          type: string
+        toolAccess:
+          type: array
+          items:
+            type: string
+      required: [businessId, name, systemPrompt, toolAccess]
+
+    UpdateAgentRequest:
+      type: object
+      properties:
+        name:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        systemPrompt:
+          type: ["string", "null"]
+        isActive:
+          type: ["boolean", "null"]
+        scheduleType:
+          type: ["string", "null"]
+          enum: [none, hourly, daily, weekly, custom, "null"]
+        scheduleTime:
+          type: ["string", "null"]
+        scheduleDay:
+          type: ["integer", "null"]
+        scheduleInterval:
+          type: ["integer", "null"]
+        toolAccess:
+          type: ["array", "null"]
+          items:
+            type: string
+
+    AgentLog:
+      type: object
+      properties:
+        id:
+          type: string
+        agentId:
+          type: string
+        summary:
+          type: string
+        createdAt:
+          type: string
+      required: [id, agentId, summary, createdAt]
+
+    AgentRunResult:
+      type: object
+      properties:
+        summary:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+        isPreview:
+          type: boolean
+      required: [summary, actions, isPreview]
+
+    AgentApproval:
+      type: object
+      properties:
+        id:
+          type: string
+        agentId:
+          type: string
+        actionType:
+          type: string
+        actionDescription:
+          type: string
+        toolName:
+          type: string
+        functionName:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected, expired]
+        expiresAt:
+          type: string
+        createdAt:
+          type: string
+      required: [id, agentId, actionType, actionDescription, toolName, functionName, status, expiresAt, createdAt]
+
+    # ── Tools ──
+    ToolInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        credentialType:
+          type: string
+        isConnected:
+          type: boolean
+        connectionId:
+          type: ["string", "null"]
+        functions:
+          type: array
+          items:
+            type: string
+      required: [name, description, credentialType, isConnected, functions]
+
+    ToolConnection:
+      type: object
+      properties:
+        id:
+          type: string
+        toolName:
+          type: string
+        status:
+          type: string
+        lastUsedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required: [id, toolName, status, createdAt]
+
+    ConnectToolRequest:
+      type: object
+      properties:
+        toolName:
+          type: string
+        credentials:
+          type: string
+        scopes:
+          type: ["array", "null"]
+          items:
+            type: string
+      required: [toolName, credentials]
+
+    # ── Usage ──
+    UsageSummary:
+      type: object
+      properties:
+        planId:
+          type: string
+        planName:
+          type: string
+        eventsUsed:
+          type: integer
+        eventsLimit:
+          type: integer
+        eventsRemaining:
+          type: integer
+        periodStart:
+          type: string
+        periodEnd:
+          type: string
+        breakdown:
+          type: object
+          additionalProperties:
+            type: integer
+      required: [planId, planName, eventsUsed, eventsLimit, eventsRemaining, periodStart, periodEnd, breakdown]
+
+    UsagePeriod:
+      type: object
+      properties:
+        periodStart:
+          type: string
+        periodEnd:
+          type: string
+        eventsUsed:
+          type: integer
+        planName:
+          type: string
+      required: [periodStart, periodEnd, eventsUsed, planName]
+
+    Plan:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        eventsPerMonth:
+          type: integer
+        pricePencePerMonth:
+          type: integer
+        description:
+          type: ["string", "null"]
+      required: [id, name, eventsPerMonth, pricePencePerMonth]
+
+    UpgradePlanRequest:
+      type: object
+      properties:
+        planId:
+          type: string
+        successUrl:
+          type: ["string", "null"]
+        cancelUrl:
+          type: ["string", "null"]
+      required: [planId]
+
+    UpgradePlanResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        checkoutUrl:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+      required: [success]
+
+    BillingPortalResponse:
+      type: object
+      properties:
+        url:
+          type: string
+      required: [url]
+
+    WalletInfo:
+      type: object
+      properties:
+        balancePence:
+          type: integer
+        balanceFormatted:
+          type: string
+        recentTransactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/WalletTransaction"
+      required: [balancePence, balanceFormatted, recentTransactions]
+
+    WalletTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [credit, debit]
+        amountPence:
+          type: integer
+        description:
+          type: string
+        createdAt:
+          type: string
+      required: [id, type, amountPence, description, createdAt]
+
+    TopUpRequest:
+      type: object
+      properties:
+        amountPence:
+          type: integer
+        successUrl:
+          type: ["string", "null"]
+        cancelUrl:
+          type: ["string", "null"]
+      required: [amountPence]
+
+    TopUpResponse:
+      type: object
+      properties:
+        checkoutUrl:
+          type: string
+      required: [checkoutUrl]
+
+    # ── Team ──
+    TeamMember:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        businessId:
+          type: string
+        role:
+          type: string
+          enum: [owner, manager, viewer]
+        displayName:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [active, removed]
+        createdAt:
+          type: string
+      required: [id, userId, businessId, role, status, createdAt]
+
+    TeamInvite:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        businessId:
+          type: string
+        role:
+          type: string
+          enum: [owner, manager, viewer]
+        email:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [pending, accepted, expired, revoked]
+        expiresAt:
+          type: string
+        createdAt:
+          type: string
+      required: [id, code, businessId, role, status, expiresAt, createdAt]
+
+    CreateInviteRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        email:
+          type: ["string", "null"]
+        role:
+          type: string
+          enum: [owner, manager, viewer]
+      required: [businessId, role]
+
+    JoinTeamRequest:
+      type: object
+      properties:
+        code:
+          type: string
+        displayName:
+          type: ["string", "null"]
+      required: [code]
+
+    TeamActivity:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        action:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+      required: [id, userId, action, details, createdAt]
+
+    TeamRoleResponse:
+      type: object
+      properties:
+        role:
+          type: ["string", "null"]
+          enum: [owner, manager, viewer, "null"]
+        isMember:
+          type: boolean
+      required: [isMember]
+
+    # ── Contacts ──
+    Contact:
+      type: object
+      properties:
+        id:
+          type: string
+        businessId:
+          type: string
+        name:
+          type: string
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        tags:
+          type: array
+          items:
+            type: string
+        consentGiven:
+          type: boolean
+        dncListed:
+          type: boolean
+        createdAt:
+          type: string
+      required: [id, businessId, name, consentGiven, dncListed, createdAt, tags]
+
+    CreateContactRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        name:
+          type: string
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        tags:
+          type: ["array", "null"]
+          items:
+            type: string
+        consentGiven:
+          type: ["boolean", "null"]
+        dncListed:
+          type: ["boolean", "null"]
+      required: [businessId, name]
+
+    ContactsListResponse:
+      type: object
+      properties:
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contact"
+        total:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+      required: [contacts, total, offset, limit]
+
+    ImportContactsRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreateContactRequest"
+      required: [businessId, contacts]
+
+    ImportContactsResponse:
+      type: object
+      properties:
+        imported:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+      required: [imported, skipped, errors]
+
+    ContactList:
+      type: object
+      properties:
+        id:
+          type: string
+        businessId:
+          type: string
+        name:
+          type: string
+        contactCount:
+          type: integer
+        createdAt:
+          type: string
+      required: [id, businessId, name, contactCount, createdAt]
+
+    CreateContactListRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        name:
+          type: string
+        contactIds:
+          type: ["array", "null"]
+          items:
+            type: string
+      required: [businessId, name]
+
+    # ── Campaigns ──
+    Campaign:
+      type: object
+      properties:
+        id:
+          type: string
+        businessId:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [sms, email]
+        status:
+          type: string
+          enum: [draft, scheduled, running, paused, completed, cancelled]
+        listId:
+          type: ["string", "null"]
+        messageTemplate:
+          type: ["string", "null"]
+        scheduledStart:
+          type: ["string", "null"]
+        budgetCapPence:
+          type: ["integer", "null"]
+        budgetSpentPence:
+          type: integer
+        sentCount:
+          type: integer
+        deliveredCount:
+          type: integer
+        failedCount:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, businessId, name, type, status, budgetSpentPence, sentCount, deliveredCount, failedCount, createdAt, updatedAt]
+
+    CreateCampaignRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        name:
+          type: string
+        type:
+          type: ["string", "null"]
+          enum: [sms, email, "null"]
+        listId:
+          type: ["string", "null"]
+        messageTemplate:
+          type: ["string", "null"]
+        budgetCapPence:
+          type: ["integer", "null"]
+      required: [businessId, name]
+
+    UpdateCampaignRequest:
+      type: object
+      properties:
+        name:
+          type: ["string", "null"]
+        type:
+          type: ["string", "null"]
+          enum: [sms, email, "null"]
+        listId:
+          type: ["string", "null"]
+        messageTemplate:
+          type: ["string", "null"]
+        budgetCapPence:
+          type: ["integer", "null"]
+
+    # ── Notifications ──
+    PushTokenRequest:
+      type: object
+      properties:
+        token:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android]
+      required: [token, platform]
+
+    NotificationPreferences:
+      type: object
+      properties:
+        businessId:
+          type: string
+        agentActivity:
+          type: boolean
+        communications:
+          type: boolean
+        billingAlerts:
+          type: boolean
+      required: [businessId, agentActivity, communications, billingAlerts]
+
+    UpdateNotificationPreferencesRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        agentActivity:
+          type: ["boolean", "null"]
+        communications:
+          type: ["boolean", "null"]
+        billingAlerts:
+          type: ["boolean", "null"]
+      required: [businessId]
+
+    # ── Referrals ──
+    ReferralCodeResponse:
+      type: object
+      properties:
+        code:
+          type: string
+      required: [code]
+
+    ReferralStats:
+      type: object
+      properties:
+        code:
+          type: string
+        totalReferrals:
+          type: integer
+        completedReferrals:
+          type: integer
+        rewardsEarned:
+          type: integer
+      required: [code, totalReferrals, completedReferrals, rewardsEarned]
+
+    # ── Reports ──
+    ReportSummary:
+      type: object
+      properties:
+        agentRuns:
+          type: integer
+        communications:
+          type: integer
+        eventsUsed:
+          type: integer
+        conversations:
+          type: integer
+        period:
+          type: object
+          properties:
+            start:
+              type: string
+            end:
+              type: string
+          required: [start, end]
+      required: [agentRuns, communications, eventsUsed, conversations, period]
+
+    # ── Knowledge ──
+    KnowledgeDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        businessId:
+          type: string
+        status:
+          type: string
+          enum: [processing, ready, failed]
+        chunkCount:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+      required: [id, title, businessId, status, createdAt]
+
+    # ── Auth ──
+    DeviceAuthRequest:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android, web]
+      required: [deviceId, platform]
+
+    DeviceAuthResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+        token:
+          type: string
+        isNew:
+          type: boolean
+      required: [userId, token, isNew]
+
+    # ── Admin ──
+    AdminCheckResponse:
+      type: object
+      properties:
+        isAdmin:
+          type: boolean
+      required: [isAdmin]
+
+    AdminOverview:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        activeUsers7d:
+          type: integer
+        activeUsers30d:
+          type: integer
+        totalBusinesses:
+          type: integer
+        totalEvents:
+          type: integer
+        totalCommunications:
+          type: integer
+      required: [totalUsers, activeUsers7d, activeUsers30d, totalBusinesses, totalEvents, totalCommunications]
+
+    AdminUsersResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              deviceId:
+                type: string
+              suspended:
+                type: boolean
+              createdAt:
+                type: string
+            required: [id, deviceId, suspended, createdAt]
+        total:
+          type: integer
+        page:
+          type: integer
+      required: [users, total, page]
+
+    AdminRevenue:
+      type: object
+      properties:
+        dailyTotals:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              totalPence:
+                type: integer
+            required: [date, totalPence]
+        subscriptionRevenuePence:
+          type: integer
+        walletRevenuePence:
+          type: integer
+      required: [dailyTotals, subscriptionRevenuePence, walletRevenuePence]
+
+    SystemHealth:
+      type: object
+      properties:
+        db:
+          type: string
+        uptime:
+          type: number
+        memoryMb:
+          type: number
+        poolActive:
+          type: integer
+        poolIdle:
+          type: integer
+      required: [db, uptime, memoryMb, poolActive, poolIdle]
