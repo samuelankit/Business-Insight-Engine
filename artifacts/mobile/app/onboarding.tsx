@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -134,7 +134,7 @@ const STEP_ORDER: Step[] = [
 ];
 
 export default function OnboardingScreen() {
-  const { token, completeOnboarding, setActiveBusinessId } = useApp();
+  const { token, authenticate, completeOnboarding, setActiveBusinessId } = useApp();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>("welcome");
@@ -155,13 +155,31 @@ export default function OnboardingScreen() {
   const [isLoading, setIsLoading] = useState(false);
 
   const apiBase = `https://${process.env["EXPO_PUBLIC_DOMAIN"]}/api`;
-  const headers = { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" };
+
+  // Always track the latest token via ref so fetch closures never go stale
+  const tokenRef = useRef(token);
+  useEffect(() => { tokenRef.current = token; }, [token]);
+
+  const makeAuthHeaders = () => ({
+    Authorization: `Bearer ${tokenRef.current ?? ""}`,
+    "Content-Type": "application/json",
+  });
+
+  // Ensure we have a valid token before making auth-required API calls.
+  // If token is null (e.g. auth hasn't resolved yet), attempt re-auth first.
+  const ensureToken = async (): Promise<boolean> => {
+    if (tokenRef.current) return true;
+    await authenticate();
+    // Give React one tick to propagate the new token into the ref
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    return !!tokenRef.current;
+  };
 
   const saveProfile = async () => {
     try {
       await fetch(`${apiBase}/profile`, {
         method: "PUT",
-        headers,
+        headers: makeAuthHeaders(),
         body: JSON.stringify({
           displayName: displayName.trim() || undefined,
           email: email.trim() || undefined,
@@ -182,7 +200,7 @@ export default function OnboardingScreen() {
     try {
       const resp = await fetch(`${apiBase}/businesses`, {
         method: "POST",
-        headers,
+        headers: makeAuthHeaders(),
         body: JSON.stringify({
           name: businessName.trim(),
           sector: selectedSector || undefined,
@@ -213,7 +231,7 @@ export default function OnboardingScreen() {
     try {
       const resp = await fetch(`${apiBase}/keys`, {
         method: "POST",
-        headers,
+        headers: makeAuthHeaders(),
         body: JSON.stringify({ provider: selectedProvider, key: apiKey.trim() }),
       });
       return resp.ok;
@@ -240,7 +258,7 @@ export default function OnboardingScreen() {
     try {
       const resp = await fetch(`${apiBase}/profile`, {
         method: "PUT",
-        headers,
+        headers: makeAuthHeaders(),
         body: JSON.stringify(data),
       });
       return resp.ok;
@@ -267,6 +285,11 @@ export default function OnboardingScreen() {
       }
       setIsLoading(true);
       try {
+        const hasToken = await ensureToken();
+        if (!hasToken) {
+          Alert.alert("Error", "Unable to authenticate. Please restart the app and try again.");
+          return;
+        }
         const ok = await saveProfilePartial({ tocAcceptedAt: new Date().toISOString() });
         if (!ok) {
           Alert.alert("Error", "Failed to record ToC acceptance. Please try again.");
