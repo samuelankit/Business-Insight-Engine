@@ -21,7 +21,7 @@ import { PlanModal } from "@/components/PlanModal";
 const GOLD = Colors.gold;
 
 export default function SettingsScreen() {
-  const { token, userId, activeBusinessId, logout } = useApp();
+  const { token, userId, activeBusinessId, logout, isAdmin, adminEmail } = useApp();
   const queryClient = useQueryClient();
   const [showApiKey, setShowApiKey] = useState(false);
   const [newKey, setNewKey] = useState("");
@@ -422,6 +422,28 @@ export default function SettingsScreen() {
               <View style={styles.usageRow}>
                 <Text style={styles.usageLabel}>Your Role</Text>
                 <Text style={styles.usageValue}>{teamRole.role ?? "\u2014"}</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Admin Panel — only visible to Microsoft-authenticated admin */}
+        {isAdmin && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Admin</Text>
+            <View style={[styles.card, { borderColor: GOLD + "44" }]}>
+              <View style={styles.usageRow}>
+                <Text style={styles.usageLabel}>Signed in as</Text>
+                <Text style={[styles.usageValue, { color: GOLD, fontSize: 12 }]} numberOfLines={1}>
+                  {adminEmail ?? "Microsoft Admin"}
+                </Text>
+              </View>
+              <View style={[styles.usageRow, { marginTop: 8 }]}>
+                <Text style={styles.usageLabel}>Access Level</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Feather name="shield" size={14} color={GOLD} />
+                  <Text style={[styles.usageValue, { color: GOLD }]}>Owner Admin</Text>
+                </View>
               </View>
             </View>
           </View>

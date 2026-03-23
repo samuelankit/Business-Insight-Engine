@@ -5,7 +5,7 @@ import { getOrCreateSubscription, getOrCreateWallet } from "../lib/usage.js";
 import { db } from "@workspace/db";
 import { usersTable, userTokensTable } from "@workspace/db/schema";
 import { eq, and, gt } from "drizzle-orm";
-import { generateToken, encrypt } from "../lib/crypto.js";
+import { generateToken, encrypt, generateOAuthState, generateCodeVerifier } from "../lib/crypto.js";
 import { requireAuth } from "../lib/auth.js";
 import {
   createAndSendOtp,
@@ -17,6 +17,7 @@ import {
   checkVerifyRateLimit,
   recordVerifyAttempt,
 } from "../lib/email.js";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const router = Router();
 
@@ -260,6 +261,244 @@ router.get("/email/status", requireAuth, async (req, res, next) => {
     res.json({
       email: user?.email ?? null,
       emailVerified: user?.emailVerified ?? false,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Microsoft OAuth 2.0 / Entra ID admin login.
+ *
+ * GET /auth/microsoft/redirect — builds the Microsoft authorization URL and returns it.
+ * The mobile app opens this URL in an in-app browser (expo-web-browser).
+ *
+ * POST /auth/microsoft/callback — exchanges the authorization code for tokens,
+ * verifies the Microsoft identity, creates or links a GoRigo user, and returns a session.
+ *
+ * Environment variables required:
+ *   ENTRA_TENANT_ID  — Azure AD tenant ID
+ *   ENTRA_CLIENT_ID  — App registration client ID
+ *   ENTRA_ADMIN_EMAIL — The one Microsoft account email allowed to gain admin access
+ *                       (optional; if unset, any verified Microsoft account in the tenant gains admin)
+ */
+
+const ENTRA_TENANT_ID = () => process.env["ENTRA_TENANT_ID"];
+const ENTRA_CLIENT_ID = () => process.env["ENTRA_CLIENT_ID"];
+const ENTRA_ADMIN_EMAIL = () => (process.env["ENTRA_ADMIN_EMAIL"] ?? "").toLowerCase().trim();
+
+const pendingOAuthStates = new Map<string, { codeVerifier: string; redirectUri: string; createdAt: number }>();
+
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [k, v] of pendingOAuthStates) {
+    if (v.createdAt < cutoff) pendingOAuthStates.delete(k);
+  }
+}, 60_000);
+
+router.get("/microsoft/redirect", async (req, res) => {
+  const tenantId = ENTRA_TENANT_ID();
+  const clientId = ENTRA_CLIENT_ID();
+
+  if (!tenantId || !clientId) {
+    res.status(503).json({ error: "Microsoft login not configured" });
+    return;
+  }
+
+  const redirectUri = (req.query["redirectUri"] as string | undefined) ?? "mobile://auth/microsoft/callback";
+
+  const state = generateOAuthState();
+  const codeVerifier = generateCodeVerifier();
+
+  const { createHash } = await import("crypto");
+  const codeChallenge = createHash("sha256")
+    .update(codeVerifier)
+    .digest("base64url");
+
+  pendingOAuthStates.set(state, { codeVerifier, redirectUri, createdAt: Date.now() });
+
+  const scope = encodeURIComponent("openid profile email offline_access");
+  const url =
+    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize` +
+    `?client_id=${clientId}` +
+    `&response_type=code` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&scope=${scope}` +
+    `&state=${state}` +
+    `&code_challenge=${codeChallenge}` +
+    `&code_challenge_method=S256` +
+    `&prompt=select_account`;
+
+  res.json({ url, state });
+});
+
+const MicrosoftCallbackSchema = z.object({
+  code: z.string().min(1),
+  state: z.string().min(1),
+  deviceId: z.string().min(1).max(200),
+  platform: z.enum(["ios", "android", "web"]),
+  redirectUri: z.string().url().optional(),
+});
+
+router.post("/microsoft/callback", async (req, res, next) => {
+  try {
+    const parsed = MicrosoftCallbackSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      return;
+    }
+
+    const tenantId = ENTRA_TENANT_ID();
+    const clientId = ENTRA_CLIENT_ID();
+
+    if (!tenantId || !clientId) {
+      res.status(503).json({ error: "Microsoft login not configured" });
+      return;
+    }
+
+    const { code, state, deviceId, platform } = parsed.data;
+
+    const pending = pendingOAuthStates.get(state);
+    if (!pending) {
+      res.status(400).json({ error: "Invalid or expired OAuth state" });
+      return;
+    }
+    pendingOAuthStates.delete(state);
+
+    const tokenEndpoint = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+    const tokenBody = new URLSearchParams({
+      client_id: clientId,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: pending.redirectUri,
+      code_verifier: pending.codeVerifier,
+      scope: "openid profile email offline_access",
+    });
+
+    const tokenResp = await fetch(tokenEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: tokenBody.toString(),
+    });
+
+    if (!tokenResp.ok) {
+      const errorText = await tokenResp.text();
+      console.error("[microsoft/callback] Token exchange failed:", errorText);
+      res.status(401).json({ error: "Microsoft token exchange failed" });
+      return;
+    }
+
+    const tokens = await tokenResp.json() as {
+      id_token?: string;
+      access_token?: string;
+    };
+
+    if (!tokens.id_token) {
+      res.status(401).json({ error: "No ID token received from Microsoft" });
+      return;
+    }
+
+    const jwks = createRemoteJWKSet(
+      new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`),
+    );
+
+    const { payload } = await jwtVerify(tokens.id_token, jwks, {
+      issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+      audience: clientId,
+    });
+
+    const microsoftEmail = (
+      (payload["preferred_username"] as string | undefined) ||
+      (payload["email"] as string | undefined) ||
+      ""
+    ).toLowerCase().trim();
+
+    const microsoftOid = payload["oid"] as string | undefined;
+    const microsoftName = payload["name"] as string | undefined;
+
+    if (!microsoftOid || !microsoftEmail) {
+      res.status(401).json({ error: "Unable to extract identity from Microsoft token" });
+      return;
+    }
+
+    const allowedEmail = ENTRA_ADMIN_EMAIL();
+    if (!allowedEmail) {
+      res.status(503).json({
+        error: "Admin login not configured",
+        message: "ENTRA_ADMIN_EMAIL environment variable must be set to the owner's Microsoft account email.",
+      });
+      return;
+    }
+    if (microsoftEmail !== allowedEmail) {
+      res.status(403).json({ error: "This Microsoft account is not authorised for admin access" });
+      return;
+    }
+
+    const tenantIdFromToken = payload["tid"] as string | undefined;
+
+    let [existingUser] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.microsoftOid, microsoftOid))
+      .limit(1);
+
+    if (!existingUser) {
+      [existingUser] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.deviceId, deviceId))
+        .limit(1);
+    }
+
+    if (!existingUser) {
+      const id = generateToken(16);
+      await db.insert(usersTable).values({
+        id,
+        deviceId,
+        platform,
+        email: microsoftEmail,
+        emailVerified: true,
+        microsoftOid,
+        microsoftTenantId: tenantIdFromToken ?? null,
+        isAdminUser: true,
+      });
+      [existingUser] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+      await getOrCreateSubscription(existingUser!.id);
+      await getOrCreateWallet(existingUser!.id);
+    } else {
+      await db
+        .update(usersTable)
+        .set({
+          email: existingUser.email ?? microsoftEmail,
+          emailVerified: true,
+          microsoftOid,
+          microsoftTenantId: tenantIdFromToken ?? existingUser.microsoftTenantId,
+          isAdminUser: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(usersTable.id, existingUser.id));
+    }
+
+    const userId = existingUser!.id;
+    const sessionToken = generateToken(32);
+    const { encryptedDek } = encrypt(sessionToken);
+    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+
+    await db.insert(userTokensTable).values({
+      id: generateToken(16),
+      userId,
+      token: sessionToken,
+      encryptedDek,
+      expiresAt,
+    });
+
+    res.json({
+      success: true,
+      userId,
+      token: sessionToken,
+      isAdmin: true,
+      microsoftEmail,
+      microsoftName: microsoftName ?? null,
     });
   } catch (err) {
     next(err);

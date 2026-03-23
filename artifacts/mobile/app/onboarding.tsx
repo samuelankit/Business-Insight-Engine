@@ -14,6 +14,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
 import { useQueryClient } from "@tanstack/react-query";
@@ -134,10 +136,11 @@ const STEP_ORDER: Step[] = [
 ];
 
 export default function OnboardingScreen() {
-  const { token, authenticate, completeOnboarding, setActiveBusinessId } = useApp();
+  const { token, authenticate, completeOnboarding, setActiveBusinessId, loginWithMicrosoft } = useApp();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>("welcome");
+  const [msLoginLoading, setMsLoginLoading] = useState(false);
 
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -159,6 +162,49 @@ export default function OnboardingScreen() {
   // Always track the latest token via ref so fetch closures never go stale
   const tokenRef = useRef(token);
   useEffect(() => { tokenRef.current = token; }, [token]);
+
+  const handleMicrosoftAdminLogin = async () => {
+    if (msLoginLoading) return;
+    setMsLoginLoading(true);
+    try {
+      const apiBase = `https://${process.env["EXPO_PUBLIC_DOMAIN"]}/api`;
+
+      const redirectUri = Linking.createURL("auth/microsoft/callback");
+
+      const resp = await fetch(`${apiBase}/auth/microsoft/redirect?redirectUri=${encodeURIComponent(redirectUri)}`);
+      if (!resp.ok) {
+        Alert.alert("Admin Login", "Microsoft login is not configured on this server.");
+        return;
+      }
+      const { url, state } = await resp.json() as { url: string; state: string };
+      const result = await WebBrowser.openAuthSessionAsync(url, redirectUri);
+
+      if (result.type !== "success") {
+        return;
+      }
+
+      const parsed = Linking.parse(result.url);
+      const code = parsed.queryParams?.["code"] as string | undefined;
+      const returnedState = parsed.queryParams?.["state"] as string | undefined;
+
+      if (!code || !returnedState) {
+        Alert.alert("Admin Login", "Login was cancelled or failed.");
+        return;
+      }
+
+      const loginResult = await loginWithMicrosoft(code, returnedState, redirectUri);
+      if (!loginResult.success) {
+        Alert.alert("Admin Login Failed", loginResult.error ?? "Microsoft authentication failed.");
+        return;
+      }
+
+      router.replace("/(tabs)");
+    } catch (err) {
+      Alert.alert("Admin Login", "An unexpected error occurred. Please try again.");
+    } finally {
+      setMsLoginLoading(false);
+    }
+  };
 
   const makeAuthHeaders = () => ({
     Authorization: `Bearer ${tokenRef.current ?? ""}`,
@@ -374,9 +420,18 @@ export default function OnboardingScreen() {
       case "welcome":
         return (
           <View style={styles.stepContent}>
-            <View style={styles.logoContainer}>
-              <Text style={styles.logo}>G</Text>
-            </View>
+            <TouchableOpacity
+              style={styles.logoContainer}
+              onLongPress={handleMicrosoftAdminLogin}
+              delayLongPress={2000}
+              activeOpacity={1}
+            >
+              {msLoginLoading ? (
+                <ActivityIndicator color="#0A0A0A" size="small" />
+              ) : (
+                <Text style={styles.logo}>G</Text>
+              )}
+            </TouchableOpacity>
             <Text style={styles.welcomeTitle}>Welcome to GoRigo</Text>
             <Text style={styles.welcomeSubtitle}>
               Your AI-powered business operating system. Let's set up your personalised experience.

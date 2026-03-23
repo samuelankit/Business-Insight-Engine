@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import React, {
   createContext,
   useContext,
@@ -17,6 +18,8 @@ const STORAGE_KEYS = {
   ONBOARDING_COMPLETE: "@gorigo/onboarding_complete",
   THEME: "@gorigo/theme",
   DEVICE_ID: "@gorigo/device_id",
+  IS_ADMIN: "@gorigo/is_admin",
+  ADMIN_EMAIL: "@gorigo/admin_email",
 };
 
 type Theme = "light" | "dark" | "system";
@@ -28,12 +31,15 @@ interface AppContextValue {
   onboardingComplete: boolean;
   theme: Theme;
   isLoading: boolean;
+  isAdmin: boolean;
+  adminEmail: string | null;
   setActiveBusinessId: (id: string) => Promise<void>;
   completeOnboarding: () => Promise<void>;
   setTheme: (theme: Theme) => Promise<void>;
   logout: () => Promise<void>;
   authenticate: () => Promise<void>;
   loginWithRecovery: (userId: string, token: string) => Promise<void>;
+  loginWithMicrosoft: (code: string, state: string, redirectUri: string) => Promise<{ success: boolean; error?: string }>;
   getDeviceId: () => Promise<string>;
 }
 
@@ -46,6 +52,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [theme, setThemeState] = useState<Theme>("light");
   const [isLoading, setIsLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
 
   useEffect(() => {
     const domain = process.env["EXPO_PUBLIC_DOMAIN"];
@@ -63,12 +71,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           storedBusinessId,
           storedOnboarding,
           storedTheme,
+          storedIsAdmin,
+          storedAdminEmail,
         ] = await AsyncStorage.multiGet([
           STORAGE_KEYS.TOKEN,
           STORAGE_KEYS.USER_ID,
           STORAGE_KEYS.ACTIVE_BUSINESS_ID,
           STORAGE_KEYS.ONBOARDING_COMPLETE,
           STORAGE_KEYS.THEME,
+          STORAGE_KEYS.IS_ADMIN,
+          STORAGE_KEYS.ADMIN_EMAIL,
         ]);
 
         const t = storedToken[1];
@@ -84,6 +96,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (bid) setActiveBusinessIdState(bid);
         if (storedOnboarding[1] === "true") setOnboardingComplete(true);
         if (storedTheme[1]) setThemeState(storedTheme[1] as Theme);
+        if (storedIsAdmin[1] === "true") setIsAdmin(true);
+        if (storedAdminEmail[1]) setAdminEmail(storedAdminEmail[1]);
 
         if (!t) {
           await doAuthenticate();
@@ -110,7 +124,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const resp = await fetch(`${baseUrl}/api/auth/device`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deviceId, platform: "ios" }),
+        body: JSON.stringify({ deviceId, platform: Platform.OS }),
       });
 
       if (!resp.ok) return;
@@ -153,6 +167,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAuthTokenGetter(() => newToken);
   }, []);
 
+  const loginWithMicrosoft = useCallback(
+    async (code: string, state: string, redirectUri: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        let deviceId = await AsyncStorage.getItem(STORAGE_KEYS.DEVICE_ID);
+        if (!deviceId) {
+          deviceId = Crypto.randomUUID();
+          await AsyncStorage.setItem(STORAGE_KEYS.DEVICE_ID, deviceId);
+        }
+
+        const domain = process.env["EXPO_PUBLIC_DOMAIN"];
+        const baseUrl = domain ? `https://${domain}` : "";
+
+        const resp = await fetch(`${baseUrl}/api/auth/microsoft/callback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, state, deviceId, platform: Platform.OS, redirectUri }),
+        });
+
+        const data = await resp.json() as {
+          success?: boolean;
+          token?: string;
+          userId?: string;
+          isAdmin?: boolean;
+          microsoftEmail?: string;
+          microsoftName?: string;
+          error?: string;
+        };
+
+        if (!resp.ok || !data.success || !data.token || !data.userId) {
+          return { success: false, error: data.error ?? "Microsoft login failed" };
+        }
+
+        await AsyncStorage.multiSet([
+          [STORAGE_KEYS.TOKEN, data.token],
+          [STORAGE_KEYS.USER_ID, data.userId],
+          [STORAGE_KEYS.ONBOARDING_COMPLETE, "true"],
+          [STORAGE_KEYS.IS_ADMIN, data.isAdmin ? "true" : "false"],
+          [STORAGE_KEYS.ADMIN_EMAIL, data.microsoftEmail ?? ""],
+        ]);
+
+        setToken(data.token);
+        setUserId(data.userId);
+        setOnboardingComplete(true);
+        setIsAdmin(!!data.isAdmin);
+        setAdminEmail(data.microsoftEmail ?? null);
+        setAuthTokenGetter(() => data.token!);
+
+        return { success: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        return { success: false, error: msg };
+      }
+    },
+    [],
+  );
+
   const setActiveBusinessId = useCallback(async (id: string) => {
     setActiveBusinessIdState(id);
     await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_BUSINESS_ID, id);
@@ -174,11 +244,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       STORAGE_KEYS.USER_ID,
       STORAGE_KEYS.ACTIVE_BUSINESS_ID,
       STORAGE_KEYS.ONBOARDING_COMPLETE,
+      STORAGE_KEYS.IS_ADMIN,
+      STORAGE_KEYS.ADMIN_EMAIL,
     ]);
     setToken(null);
     setUserId(null);
     setActiveBusinessIdState(null);
     setOnboardingComplete(false);
+    setIsAdmin(false);
+    setAdminEmail(null);
     await doAuthenticate();
   }, []);
 
@@ -191,12 +265,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         onboardingComplete,
         theme,
         isLoading,
+        isAdmin,
+        adminEmail,
         setActiveBusinessId,
         completeOnboarding,
         setTheme,
         logout,
         authenticate,
         loginWithRecovery,
+        loginWithMicrosoft,
         getDeviceId,
       }}
     >

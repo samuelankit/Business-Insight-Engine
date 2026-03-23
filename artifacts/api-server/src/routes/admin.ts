@@ -1,18 +1,48 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable, businessesTable, usageEventsTable } from "@workspace/db/schema";
-import { count, desc } from "drizzle-orm";
+import { usersTable, businessesTable, usageEventsTable, userTokensTable } from "@workspace/db/schema";
+import { count, desc, eq, and, gt } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth.js";
 
 const router = Router();
 
-router.get("/check", async (req, res) => {
-  // Fix: Admin access checked via dedicated ADMIN_TOKEN header, not device ID spoofing
-  const adminToken = process.env["ADMIN_TOKEN"];
-  const authHeader = req.headers["authorization"];
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  const isAdmin = !!(adminToken && token && token === adminToken);
-  res.json({ isAdmin });
+router.get("/check", async (req, res, next) => {
+  try {
+    const authHeader = req.headers["authorization"];
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+    if (!token) {
+      res.json({ isAdmin: false });
+      return;
+    }
+
+    const adminToken = process.env["ADMIN_TOKEN"];
+    if (adminToken && token === adminToken) {
+      res.json({ isAdmin: true });
+      return;
+    }
+
+    const [row] = await db
+      .select({ userId: userTokensTable.userId })
+      .from(userTokensTable)
+      .where(and(eq(userTokensTable.token, token), gt(userTokensTable.expiresAt, new Date())))
+      .limit(1);
+
+    if (!row) {
+      res.json({ isAdmin: false });
+      return;
+    }
+
+    const [user] = await db
+      .select({ isAdminUser: usersTable.isAdminUser, suspended: usersTable.suspended })
+      .from(usersTable)
+      .where(eq(usersTable.id, row.userId))
+      .limit(1);
+
+    res.json({ isAdmin: !!(user && !user.suspended && user.isAdminUser) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get("/overview", requireAdmin, async (_req, res, next) => {

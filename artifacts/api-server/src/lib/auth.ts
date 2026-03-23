@@ -23,6 +23,7 @@ declare global {
       userId?: string;
       user?: typeof usersTable.$inferSelect;
       activeBusinessId?: string;
+      isAdminSession?: boolean;
     }
   }
 }
@@ -105,21 +106,63 @@ export async function requireAuth(
 
 /**
  * Admin auth middleware.
- * Fix: Admin is identified by a dedicated ADMIN_TOKEN env var, not a device ID.
+ * Accepts either:
+ *   1. A static ADMIN_TOKEN from the environment (existing approach), or
+ *   2. A valid GoRigo session token belonging to a user flagged as isAdminUser
+ *      (set when they authenticate via Microsoft Entra ID).
  */
-export function requireAdmin(
+export async function requireAdmin(
   req: Request,
   res: Response,
   next: NextFunction,
-): void {
-  const adminToken = process.env["ADMIN_TOKEN"];
+): Promise<void> {
   const token = extractBearerToken(req);
-
-  if (!adminToken || !token || token !== adminToken) {
+  if (!token) {
     res.status(403).json({ error: "Admin access denied" });
     return;
   }
-  next();
+
+  const adminToken = process.env["ADMIN_TOKEN"];
+
+  if (adminToken && token === adminToken) {
+    next();
+    return;
+  }
+
+  try {
+    const [row] = await db
+      .select({ userId: userTokensTable.userId })
+      .from(userTokensTable)
+      .where(
+        and(
+          eq(userTokensTable.token, token),
+          gt(userTokensTable.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+
+    if (!row) {
+      res.status(403).json({ error: "Admin access denied" });
+      return;
+    }
+
+    const [user] = await db
+      .select({ id: usersTable.id, suspended: usersTable.suspended, isAdminUser: usersTable.isAdminUser })
+      .from(usersTable)
+      .where(eq(usersTable.id, row.userId))
+      .limit(1);
+
+    if (!user || user.suspended || !user.isAdminUser) {
+      res.status(403).json({ error: "Admin access denied" });
+      return;
+    }
+
+    req.userId = user.id;
+    req.isAdminSession = true;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 /** Register or authenticate a device — creates a user + session token */
