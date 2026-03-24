@@ -13,7 +13,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
-import { PlanModal } from "@/components/PlanModal";
+import { TopUpModal } from "@/components/TopUpModal";
 
 const C = Colors.dark;
 
@@ -67,14 +67,6 @@ function TypingIndicator() {
   );
 }
 
-function getUsageBadgeColor(eventsUsed: number, eventsLimit: number) {
-  if (eventsLimit === -1) return Colors.gold;
-  const pct = (eventsUsed / eventsLimit) * 100;
-  if (pct >= 100) return "#EF4444";
-  if (pct >= 80) return "#F59E0B";
-  return Colors.gold;
-}
-
 export default function DashboardScreen() {
   const { userId, activeBusinessId, token } = useApp();
   const queryClient = useQueryClient();
@@ -82,21 +74,23 @@ export default function DashboardScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
-  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [insufficientBalance, setInsufficientBalance] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const { data: usageData, refetch: refetchUsage } = useQuery({
-    queryKey: ["usage", userId],
+  const { data: walletData, refetch: refetchWallet } = useQuery({
+    queryKey: ["wallet", userId],
     queryFn: async () => {
       if (!token) return null;
       const domain = process.env["EXPO_PUBLIC_DOMAIN"];
-      const resp = await fetch(`https://${domain}/api/usage/summary`, {
+      const resp = await fetch(`https://${domain}/api/usage/wallet`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       return resp.ok ? resp.json() : null;
     },
     enabled: !!token,
+    refetchInterval: 30000,
   });
 
   useEffect(() => {
@@ -186,13 +180,13 @@ export default function DashboardScreen() {
         signal: controller.signal,
       });
 
-      if (resp.status === 429) {
+      if (resp.status === 402) {
         const body = await resp.json();
-        if (body.upgrade) {
+        if (body.error === "insufficient_balance") {
           setShowTyping(false);
           setIsStreaming(false);
           abortRef.current = null;
-          setShowPlanModal(true);
+          setInsufficientBalance(true);
           return;
         }
         throw new Error(`HTTP ${resp.status}`);
@@ -251,7 +245,7 @@ export default function DashboardScreen() {
                     m.id === streamingId ? { ...m, streaming: false } : m,
                   ),
                 );
-                await refetchUsage();
+                await refetchWallet();
               }
 
               currentEvent = "";
@@ -280,7 +274,7 @@ export default function DashboardScreen() {
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [token, activeBusinessId, isStreaming, refetchUsage]);
+  }, [token, activeBusinessId, isStreaming, refetchWallet]);
 
   const sendMessage = useCallback(() => {
     const trimmed = message.trim();
@@ -301,15 +295,10 @@ export default function DashboardScreen() {
     void streamMessage(prompt, modeId);
   };
 
-  const usagePct =
-    usageData && usageData.eventsLimit > 0
-      ? (usageData.eventsUsed / usageData.eventsLimit) * 100
-      : 0;
-  const badgeColor = usageData
-    ? getUsageBadgeColor(usageData.eventsUsed, usageData.eventsLimit)
-    : Colors.gold;
-  const showWarningBanner =
-    usageData && usageData.eventsLimit > 0 && usagePct >= 80 && usagePct < 100;
+  const balancePence = walletData?.balancePence ?? null;
+  const balanceFormatted = walletData?.balanceFormatted ?? null;
+  const isLowBalance = walletData?.lowBalance ?? false;
+  const badgeColor = balancePence !== null && isLowBalance ? "#F59E0B" : Colors.gold;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -318,31 +307,51 @@ export default function DashboardScreen() {
           <Text style={styles.headerTitle}>GoRigo</Text>
           <Text style={styles.headerSub}>AI Business OS</Text>
         </View>
-        {usageData && (
+        {balanceFormatted && (
           <TouchableOpacity
             style={[styles.usageBadge, { borderColor: badgeColor + "66" }]}
-            onPress={() => setShowPlanModal(true)}
+            onPress={() => setShowTopUpModal(true)}
             activeOpacity={0.7}
           >
+            {isLowBalance && (
+              <Feather name="alert-triangle" size={11} color="#F59E0B" style={{ marginRight: 4 }} />
+            )}
             <Text style={[styles.usageText, { color: badgeColor }]}>
-              {usageData.eventsUsed}/
-              {usageData.eventsLimit === -1 ? "∞" : usageData.eventsLimit}
+              {balanceFormatted}
             </Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Warning banner at 80% */}
-      {showWarningBanner && (
+      {/* Low balance warning banner */}
+      {isLowBalance && !insufficientBalance && (
         <TouchableOpacity
           style={styles.warningBanner}
-          onPress={() => setShowPlanModal(true)}
+          onPress={() => setShowTopUpModal(true)}
           activeOpacity={0.8}
         >
           <Feather name="alert-triangle" size={14} color="#F59E0B" />
           <Text style={styles.warningText}>
-            You've used {Math.round(usagePct)}% of your monthly AI events.{" "}
-            <Text style={styles.warningLink}>Upgrade to continue.</Text>
+            Your balance is low ({balanceFormatted}).{" "}
+            <Text style={styles.warningLink}>Top up to continue.</Text>
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Insufficient balance inline banner */}
+      {insufficientBalance && (
+        <TouchableOpacity
+          style={styles.insufficientBanner}
+          onPress={() => {
+            setInsufficientBalance(false);
+            setShowTopUpModal(true);
+          }}
+          activeOpacity={0.8}
+        >
+          <Feather name="zap-off" size={14} color="#EF4444" />
+          <Text style={styles.insufficientText}>
+            Insufficient balance.{" "}
+            <Text style={styles.insufficientLink}>Top up to continue.</Text>
           </Text>
         </TouchableOpacity>
       )}
@@ -428,13 +437,13 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </View>
 
-      <PlanModal
-        visible={showPlanModal}
-        onClose={() => setShowPlanModal(false)}
-        usageData={usageData}
-        onPurchaseSuccess={() => {
-          refetchUsage();
-          queryClient.invalidateQueries({ queryKey: ["usage-summary"] });
+      <TopUpModal
+        visible={showTopUpModal}
+        onClose={() => setShowTopUpModal(false)}
+        onSuccess={() => {
+          setInsufficientBalance(false);
+          refetchWallet();
+          queryClient.invalidateQueries({ queryKey: ["wallet"] });
         }}
       />
     </SafeAreaView>
@@ -467,6 +476,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   usageBadge: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#1A1A1A",
     borderWidth: 1,
     borderRadius: 20,
@@ -497,6 +508,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   warningLink: {
+    fontFamily: "Inter_600SemiBold",
+    textDecorationLine: "underline",
+  },
+  insufficientBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#1F1111",
+    borderColor: "#EF444444",
+    borderWidth: 1,
+    borderRadius: 10,
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  insufficientText: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#EF4444",
+    flex: 1,
+  },
+  insufficientLink: {
     fontFamily: "Inter_600SemiBold",
     textDecorationLine: "underline",
   },

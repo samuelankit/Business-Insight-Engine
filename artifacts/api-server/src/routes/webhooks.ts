@@ -1,9 +1,11 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
+import Stripe from "stripe";
 import { db } from "@workspace/db";
-import { userSubscriptionsTable, usersTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { userSubscriptionsTable, usersTable, walletsTable, walletTransactionsTable } from "@workspace/db/schema";
+import { eq, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { PLANS, getOrCreateSubscription } from "../lib/usage.js";
+import { generateToken } from "../lib/crypto.js";
 
 const router = Router();
 
@@ -122,6 +124,108 @@ router.post("/revenuecat", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "RevenueCat webhook error");
     res.status(200).json({ received: true });
+  }
+});
+
+interface RawBodyRequest extends Request {
+  rawBody?: Buffer;
+}
+
+router.post("/stripe", async (req: RawBodyRequest, res) => {
+  const webhookSecret = process.env["STRIPE_WEBHOOK_SECRET"];
+  if (!webhookSecret) {
+    logger.error("STRIPE_WEBHOOK_SECRET not configured — rejecting webhook");
+    res.status(500).json({ error: "Webhook not configured" });
+    return;
+  }
+
+  const signature = req.headers["stripe-signature"] as string | undefined;
+  if (!signature) {
+    res.status(400).json({ error: "Missing stripe-signature header" });
+    return;
+  }
+
+  const rawBody = req.rawBody;
+  if (!rawBody) {
+    logger.error("Raw body not available for Stripe webhook verification");
+    res.status(400).json({ error: "Raw body not available" });
+    return;
+  }
+
+  const stripeKey = process.env["STRIPE_SECRET_KEY"];
+  if (!stripeKey) {
+    logger.error("STRIPE_SECRET_KEY not configured");
+    res.status(500).json({ error: "Stripe not configured" });
+    return;
+  }
+
+  let event: Stripe.Event;
+  try {
+    const stripe = new Stripe(stripeKey);
+    event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    logger.error({ message }, "Stripe webhook signature verification failed");
+    res.status(400).json({ error: "Webhook signature verification failed" });
+    return;
+  }
+
+  try {
+    if (event.type === "payment_intent.succeeded") {
+      const intent = event.data.object as Stripe.PaymentIntent;
+      const { userId, type } = intent.metadata ?? {};
+
+      if (type === "wallet_topup" && userId) {
+        const stripeIntentId = intent.id;
+        const amountPence = intent.amount;
+
+        try {
+          await db.transaction(async (tx) => {
+            const [existing] = await tx
+              .select({ id: walletTransactionsTable.id })
+              .from(walletTransactionsTable)
+              .where(eq(walletTransactionsTable.description, `stripe:${stripeIntentId}`))
+              .limit(1);
+
+            if (existing) {
+              logger.warn({ stripeIntentId }, "Duplicate Stripe webhook — already credited");
+              return;
+            }
+
+            await tx
+              .update(walletsTable)
+              .set({
+                balancePence: sql`${walletsTable.balancePence} + ${amountPence}`,
+                updatedAt: new Date(),
+              })
+              .where(eq(walletsTable.userId, userId));
+
+            await tx.insert(walletTransactionsTable).values({
+              id: generateToken(16),
+              userId,
+              type: "credit",
+              amountPence,
+              description: `stripe:${stripeIntentId}`,
+              metadata: { stripeIntentId, amountFormatted: `£${(amountPence / 100).toFixed(2)}` },
+            });
+          });
+
+          logger.info({ userId, amountPence, intentId: stripeIntentId }, "Wallet credited via Stripe webhook");
+        } catch (txErr: unknown) {
+          const pgCode = (txErr as Record<string, unknown>)?.code;
+          if (pgCode === "23505") {
+            logger.warn({ stripeIntentId }, "Duplicate Stripe webhook (constraint violation)");
+          } else {
+            throw txErr;
+          }
+        }
+      }
+    }
+
+    res.json({ received: true });
+  } catch (err) {
+    logger.error({ err }, "Stripe webhook processing error");
+    res.status(500).json({ error: "Webhook processing failed" });
   }
 });
 

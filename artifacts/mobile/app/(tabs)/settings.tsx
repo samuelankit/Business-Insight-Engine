@@ -16,7 +16,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
-import { PlanModal } from "@/components/PlanModal";
+import { TopUpModal } from "@/components/TopUpModal";
 
 const GOLD = Colors.gold;
 
@@ -27,7 +27,7 @@ export default function SettingsScreen() {
   const [newKey, setNewKey] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic">("openai");
   const [showBusinessModal, setShowBusinessModal] = useState(false);
-  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const [businessSector, setBusinessSector] = useState("");
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -58,13 +58,14 @@ export default function SettingsScreen() {
     enabled: !!token,
   });
 
-  const { data: usageData } = useQuery<any>({
-    queryKey: ["usage-summary", userId],
+  const { data: walletData, refetch: refetchWallet } = useQuery<any>({
+    queryKey: ["wallet", userId],
     queryFn: async () => {
-      const resp = await fetch(`${apiBase}/usage/summary`, { headers });
+      const resp = await fetch(`${apiBase}/usage/wallet`, { headers });
       return resp.ok ? resp.json() : null;
     },
     enabled: !!token,
+    refetchInterval: 30000,
   });
 
   const { data: teamRole } = useQuery<any>({
@@ -261,10 +262,27 @@ export default function SettingsScreen() {
     "healthcare", "education", "technology", "finance", "other",
   ];
 
+  const balancePence = walletData?.balancePence ?? 0;
+  const balanceFormatted = walletData?.balanceFormatted ?? "£0.00";
+  const isLowBalance = walletData?.lowBalance ?? (balancePence < 200);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Settings</Text>
+        {walletData && (
+          <TouchableOpacity
+            style={[styles.balanceBadge, isLowBalance && styles.balanceBadgeLow]}
+            onPress={() => setShowTopUpModal(true)}
+          >
+            {isLowBalance && (
+              <Feather name="alert-triangle" size={12} color="#F59E0B" style={{ marginRight: 4 }} />
+            )}
+            <Text style={[styles.balanceText, isLowBalance && styles.balanceTextLow]}>
+              {balanceFormatted}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -300,61 +318,79 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Usage section */}
-        {usageData && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Usage</Text>
-            <View style={styles.card}>
-              <View style={styles.usageRow}>
-                <Text style={styles.usageLabel}>Plan</Text>
-                <Text style={styles.usageValue}>{usageData.planName}</Text>
+        {/* Wallet section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Wallet</Text>
+          <View style={styles.card}>
+            <View style={styles.walletRow}>
+              <View style={styles.walletIconWrap}>
+                <Feather name="credit-card" size={18} color={GOLD} />
               </View>
-              {usageData.periodEnd && (
-                <View style={styles.usageRow}>
-                  <Text style={styles.usageLabel}>Renews</Text>
-                  <Text style={styles.usageValue}>
-                    {new Date(usageData.periodEnd).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    })}
-                  </Text>
+              <View style={styles.walletInfo}>
+                <Text style={styles.walletLabel}>Balance</Text>
+                <Text style={[styles.walletBalance, isLowBalance && styles.walletBalanceLow]}>
+                  {balanceFormatted}
+                </Text>
+              </View>
+              {isLowBalance && (
+                <View style={styles.lowBalanceBadge}>
+                  <Feather name="alert-triangle" size={12} color="#F59E0B" />
+                  <Text style={styles.lowBalanceText}>Low</Text>
                 </View>
               )}
-              <View style={styles.progressBar}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    {
-                      width: usageData.eventsLimit === -1
-                        ? "100%"
-                        : `${Math.min(100, (usageData.eventsUsed / usageData.eventsLimit) * 100)}%`,
-                      backgroundColor:
-                        usageData.eventsLimit !== -1 &&
-                        (usageData.eventsUsed / usageData.eventsLimit) >= 1
-                          ? "#EF4444"
-                          : usageData.eventsLimit !== -1 &&
-                            (usageData.eventsUsed / usageData.eventsLimit) >= 0.8
-                          ? "#F59E0B"
-                          : GOLD,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={styles.usageMeta}>
-                {usageData.eventsUsed} / {usageData.eventsLimit === -1 ? "\u221E" : usageData.eventsLimit} AI events
-              </Text>
-              <TouchableOpacity
-                style={styles.upgradeBtn}
-                onPress={() => setShowPlanModal(true)}
-              >
-                <Text style={styles.upgradeBtnText}>
-                  {usageData.planId === "free" ? "Upgrade Plan" : "Manage Plan"}
-                </Text>
-              </TouchableOpacity>
             </View>
+
+            {isLowBalance && (
+              <View style={styles.lowBalanceBanner}>
+                <Feather name="zap" size={14} color="#F59E0B" />
+                <Text style={styles.lowBalanceBannerText}>
+                  Your balance is low. Top up to keep using GoRigo AI.
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.topUpBtn}
+              onPress={() => setShowTopUpModal(true)}
+            >
+              <Feather name="plus-circle" size={16} color="#0A0A0A" />
+              <Text style={styles.topUpBtnText}>Top Up</Text>
+            </TouchableOpacity>
           </View>
-        )}
+
+          {walletData?.recentTransactions && walletData.recentTransactions.length > 0 && (
+            <View style={[styles.card, { marginTop: 8 }]}>
+              <Text style={styles.txTitle}>Recent Transactions</Text>
+              {walletData.recentTransactions.slice(0, 5).map((tx: any) => (
+                <View key={tx.id} style={styles.txRow}>
+                  <View style={styles.txIconWrap}>
+                    <Feather
+                      name={tx.type === "credit" ? "arrow-down-circle" : "arrow-up-circle"}
+                      size={14}
+                      color={tx.type === "credit" ? "#22C55E" : "#EF4444"}
+                    />
+                  </View>
+                  <View style={styles.txInfo}>
+                    <Text style={styles.txDesc}>{tx.description}</Text>
+                    <Text style={styles.txDate}>
+                      {new Date(tx.createdAt).toLocaleDateString("en-GB", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </Text>
+                  </View>
+                  <Text style={[
+                    styles.txAmount,
+                    { color: tx.type === "credit" ? "#22C55E" : "#EF4444" },
+                  ]}>
+                    {tx.type === "credit" ? "+" : "-"}£{(tx.amountPence / 100).toFixed(2)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
 
         {/* API Keys */}
         <View style={styles.section}>
@@ -421,7 +457,7 @@ export default function SettingsScreen() {
             <View style={styles.card}>
               <View style={styles.usageRow}>
                 <Text style={styles.usageLabel}>Your Role</Text>
-                <Text style={styles.usageValue}>{teamRole.role ?? "\u2014"}</Text>
+                <Text style={styles.usageValue}>{teamRole.role ?? "—"}</Text>
               </View>
             </View>
           </View>
@@ -561,13 +597,13 @@ export default function SettingsScreen() {
         </SafeAreaView>
       </Modal>
 
-      <PlanModal
-        visible={showPlanModal}
-        onClose={() => setShowPlanModal(false)}
-        usageData={usageData}
-        onPurchaseSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ["usage-summary"] });
-          queryClient.invalidateQueries({ queryKey: ["usage"] });
+      {/* Top Up Modal */}
+      <TopUpModal
+        visible={showTopUpModal}
+        onClose={() => setShowTopUpModal(false)}
+        onSuccess={() => {
+          refetchWallet();
+          queryClient.invalidateQueries({ queryKey: ["wallet"] });
         }}
       />
 
@@ -675,8 +711,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   headerTitle: { fontSize: 24, fontFamily: "Inter_700Bold", color: "#FFFFFF", letterSpacing: -0.5 },
+  balanceBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.goldMuted,
+    borderColor: GOLD + "44",
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  balanceBadgeLow: {
+    backgroundColor: "#2A1F00",
+    borderColor: "#F59E0B",
+  },
+  balanceText: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    color: GOLD,
+  },
+  balanceTextLow: { color: "#F59E0B" },
   scroll: { flex: 1 },
   section: { paddingHorizontal: 20, marginBottom: 28 },
   sectionTitle: {
@@ -695,6 +754,91 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  walletRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  walletIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.goldMuted,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  walletInfo: { flex: 1 },
+  walletLabel: { fontSize: 12, fontFamily: "Inter_500Medium", color: "#8A8A8A" },
+  walletBalance: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    color: "#FFFFFF",
+    marginTop: 2,
+  },
+  walletBalanceLow: { color: "#F59E0B" },
+  lowBalanceBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#2A1F00",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderColor: "#F59E0B",
+    borderWidth: 1,
+  },
+  lowBalanceText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#F59E0B" },
+  lowBalanceBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#1F1800",
+    borderColor: "#F59E0B44",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+  },
+  lowBalanceBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "#F59E0B",
+  },
+  topUpBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: GOLD,
+    borderRadius: 10,
+    paddingVertical: 12,
+  },
+  topUpBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    color: "#0A0A0A",
+  },
+  txTitle: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: "#8A8A8A",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  txRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 4,
+    borderTopColor: "#2A2A2A",
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  txIconWrap: { width: 28, height: 28, justifyContent: "center", alignItems: "center" },
+  txInfo: { flex: 1 },
+  txDesc: { fontSize: 13, fontFamily: "Inter_500Medium", color: "#CCCCCC" },
+  txDate: { fontSize: 11, fontFamily: "Inter_400Regular", color: "#555", marginTop: 2 },
+  txAmount: { fontSize: 13, fontFamily: "Inter_700Bold" },
   emailRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -735,23 +879,6 @@ const styles = StyleSheet.create({
   usageRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   usageLabel: { fontSize: 14, fontFamily: "Inter_400Regular", color: "#8A8A8A" },
   usageValue: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#FFFFFF" },
-  progressBar: {
-    height: 6,
-    backgroundColor: "#2A2A2A",
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  progressFill: { height: "100%", backgroundColor: GOLD, borderRadius: 3 },
-  usageMeta: { fontSize: 13, fontFamily: "Inter_400Regular", color: "#555" },
-  upgradeBtn: {
-    backgroundColor: Colors.goldMuted,
-    borderColor: GOLD,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  upgradeBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: GOLD },
   keyRow: {
     flexDirection: "row",
     alignItems: "center",

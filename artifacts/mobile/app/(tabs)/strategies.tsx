@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
+import { TopUpModal } from "@/components/TopUpModal";
 
 const GOLD = Colors.gold;
 
@@ -96,6 +97,7 @@ function StrategyDetail({
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamedContent, setStreamedContent] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [showTopUp, setShowTopUp] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -147,7 +149,12 @@ function StrategyDetail({
       });
 
       if (!resp.ok) {
-        const body = await resp.json() as { error?: string };
+        const body = await resp.json() as { error?: string; message?: string };
+        if (resp.status === 402 && body.error === "insufficient_balance") {
+          setStreamedContent("");
+          setShowTopUp(true);
+          return;
+        }
         setStreamedContent(`Error: ${body.error ?? "Failed to generate strategy."}`);
         return;
       }
@@ -282,6 +289,12 @@ function StrategyDetail({
           </TouchableOpacity>
         </View>
       )}
+
+      <TopUpModal
+        visible={showTopUp}
+        onClose={() => setShowTopUp(false)}
+        onSuccess={() => setShowTopUp(false)}
+      />
     </SafeAreaView>
   );
 }

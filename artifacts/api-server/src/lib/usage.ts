@@ -5,7 +5,7 @@ import {
   walletsTable,
   walletTransactionsTable,
 } from "@workspace/db/schema";
-import { eq, and, gte, lte, sql, count, inArray } from "drizzle-orm";
+import { eq, sql, count } from "drizzle-orm";
 import { generateToken } from "./crypto.js";
 import { logger } from "./logger.js";
 
@@ -33,13 +33,19 @@ export const PLANS = [
   },
 ];
 
-const METERED_EVENTS = [
-  "orchestrate",
-  "transcribe",
-  "agent_run",
-  "realtime_call",
-  "strategy_generate",
-];
+export const EVENT_COSTS_PENCE: Record<string, number> = {
+  orchestrate: 5,
+  transcribe: 3,
+  agent_run: 8,
+  realtime_call: 15,
+  strategy_generate: 5,
+};
+
+export const DEFAULT_COST_PENCE = 5;
+
+export function getEventCost(eventType: string): number {
+  return EVENT_COSTS_PENCE[eventType] ?? DEFAULT_COST_PENCE;
+}
 
 export async function recordUsage(
   userId: string,
@@ -61,38 +67,62 @@ export async function checkUsageLimit(userId: string): Promise<{
   eventsUsed: number;
   eventsLimit: number;
 }> {
-  const now = new Date();
-  const [sub] = await db
-    .select()
-    .from(userSubscriptionsTable)
-    .where(eq(userSubscriptionsTable.userId, userId))
-    .limit(1);
-
-  const plan = PLANS.find((p) => p.id === (sub?.planId ?? "free")) ?? PLANS[0]!;
-
-  if (plan.eventsPerMonth === -1) {
-    return { allowed: true, eventsUsed: 0, eventsLimit: -1 };
-  }
-
-  const periodStart = sub?.periodStart ?? new Date(now.getFullYear(), now.getMonth(), 1);
-  const periodEnd = sub?.periodEnd ?? new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const wallet = await getOrCreateWallet(userId);
+  const costPence = DEFAULT_COST_PENCE;
+  const allowed = wallet.balancePence >= costPence;
 
   const [result] = await db
     .select({ cnt: count() })
     .from(usageEventsTable)
-    .where(
-      and(
-        eq(usageEventsTable.userId, userId),
-        gte(usageEventsTable.createdAt, periodStart),
-        lte(usageEventsTable.createdAt, periodEnd),
-        inArray(usageEventsTable.eventType, METERED_EVENTS),
-      ),
-    );
+    .where(eq(usageEventsTable.userId, userId));
 
   const eventsUsed = Number(result?.cnt ?? 0);
-  const allowed = eventsUsed < plan.eventsPerMonth;
 
-  return { allowed, eventsUsed, eventsLimit: plan.eventsPerMonth };
+  return { allowed, eventsUsed, eventsLimit: -1 };
+}
+
+export async function checkWalletAndDebit(
+  userId: string,
+  eventType: string,
+  description: string,
+  metadata?: Record<string, unknown>,
+): Promise<{ allowed: boolean; balancePence: number; costPence: number }> {
+  const costPence = getEventCost(eventType);
+
+  const updated = await db
+    .update(walletsTable)
+    .set({
+      balancePence: sql`${walletsTable.balancePence} - ${costPence}`,
+      updatedAt: new Date(),
+    })
+    .where(
+      sql`${walletsTable.userId} = ${userId} AND ${walletsTable.balancePence} >= ${costPence}`,
+    )
+    .returning({ balancePence: walletsTable.balancePence });
+
+  if (!updated || updated.length === 0) {
+    const wallet = await getOrCreateWallet(userId);
+    return { allowed: false, balancePence: wallet.balancePence, costPence };
+  }
+
+  await db.insert(walletTransactionsTable).values({
+    id: generateToken(16),
+    userId,
+    type: "debit",
+    amountPence: costPence,
+    description,
+    metadata,
+  });
+
+  const newBalance = updated[0]!.balancePence;
+
+  if (newBalance < 100) {
+    logger.warn({ userId, balance: newBalance }, "Wallet critically low (< £1)");
+  } else if (newBalance < 200) {
+    logger.warn({ userId, balance: newBalance }, "Wallet low (< £2)");
+  }
+
+  return { allowed: true, balancePence: newBalance, costPence };
 }
 
 export async function getOrCreateSubscription(
@@ -178,12 +208,11 @@ export async function debitWallet(
     metadata,
   });
 
-  // Low balance push notifications
   const wallet = await getOrCreateWallet(userId);
   if (wallet.balancePence < 100) {
     logger.warn({ userId, balance: wallet.balancePence }, "Wallet critically low (< £1)");
-  } else if (wallet.balancePence < 500) {
-    logger.warn({ userId, balance: wallet.balancePence }, "Wallet low (< £5)");
+  } else if (wallet.balancePence < 200) {
+    logger.warn({ userId, balance: wallet.balancePence }, "Wallet low (< £2)");
   }
 }
 

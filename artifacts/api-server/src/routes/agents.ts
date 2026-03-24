@@ -5,6 +5,7 @@ import { agentsTable, agentLogsTable, agentPendingActionsTable } from "@workspac
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateToken } from "../lib/crypto.js";
+import { checkWalletAndDebit, getEventCost, recordUsage } from "../lib/usage.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -210,19 +211,38 @@ router.post("/:agentId/run", async (req, res, next) => {
       return;
     }
 
+    const costPence = getEventCost("agent_run");
+    const debitResult = await checkWalletAndDebit(
+      req.userId!,
+      "agent_run",
+      "Agent run",
+      { agentId: agent.id, agentName: agent.name },
+    );
+    if (!debitResult.allowed) {
+      res.status(402).json({
+        error: "insufficient_balance",
+        balancePence: debitResult.balancePence,
+        costPence,
+        message: "Top up your wallet to continue using GoRigo AI.",
+      });
+      return;
+    }
+
+    const businessId = req.body.businessId ?? agent.businessId;
     const summary = `Agent "${agent.name}" ran successfully and analysed business data.`;
     await db.insert(agentLogsTable).values({
       id: generateToken(16),
       agentId: agent.id,
       userId: req.userId!,
-      businessId: req.body.businessId ?? agent.businessId,
+      businessId,
       summary,
       actions: [],
     });
 
     await db.update(agentsTable).set({ lastRunAt: new Date() }).where(eq(agentsTable.id, agent.id));
+    await recordUsage(req.userId!, businessId, "agent_run");
 
-    res.json({ summary, actions: [], isPreview: false });
+    res.json({ summary, actions: [], isPreview: false, walletBalancePence: debitResult.balancePence });
   } catch (err) {
     next(err);
   }

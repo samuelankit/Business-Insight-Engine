@@ -22,6 +22,7 @@ import webhooksRouter from "./webhooks.js";
 import profileRouter from "./profile.js";
 import strategiesRouter from "./strategies.js";
 import analyticsRouter from "./analytics.js";
+import paymentsRouter from "./payments.js";
 
 const router: IRouter = Router();
 
@@ -51,5 +52,6 @@ router.use("/webhooks", webhooksRouter);
 router.use("/profile", profileRouter);
 router.use("/strategies", strategiesRouter);
 router.use("/analytics", analyticsRouter);
+router.use("/payments", paymentsRouter);
 
 export default router;

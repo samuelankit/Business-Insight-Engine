@@ -5,6 +5,7 @@ import { voicePreferencesTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateToken } from "../lib/crypto.js";
+import { checkWalletAndDebit, getEventCost } from "../lib/usage.js";
 
 const router = Router();
 
@@ -76,8 +77,23 @@ router.put("/voice-preferences", requireAuth, async (req, res, next) => {
 // POST /transcribe
 router.post("/transcribe", requireAuth, async (req, res, next) => {
   try {
-    // Stub transcription — real implementation would call Whisper
-    res.json({ transcript: "", confidence: null });
+    const costPence = getEventCost("transcribe");
+    const debitResult = await checkWalletAndDebit(
+      req.userId!,
+      "transcribe",
+      "Audio transcription",
+    );
+    if (!debitResult.allowed) {
+      res.status(402).json({
+        error: "insufficient_balance",
+        balancePence: debitResult.balancePence,
+        costPence,
+        message: "Top up your wallet to continue using GoRigo AI.",
+      });
+      return;
+    }
+
+    res.json({ transcript: "", confidence: null, walletBalancePence: debitResult.balancePence });
   } catch (err) {
     next(err);
   }

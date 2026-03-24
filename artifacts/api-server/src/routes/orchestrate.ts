@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import { conversationsTable } from "@workspace/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
-import { checkUsageLimit, recordUsage } from "../lib/usage.js";
+import { checkWalletAndDebit, getOrCreateWallet, recordUsage } from "../lib/usage.js";
 import { getDecryptedKey } from "./keys.js";
 import { generateToken } from "../lib/crypto.js";
 import { openai as replitOpenAI } from "@workspace/integrations-openai-ai-server";
@@ -46,9 +46,15 @@ router.post("/", requireAuth, async (req, res, next) => {
 
     const { message, businessId, sessionMode, provider = "openai" } = parsed.data;
 
-    const { allowed, eventsUsed, eventsLimit } = await checkUsageLimit(req.userId!);
-    if (!allowed) {
-      res.status(429).json({ error: "usage_limit", upgrade: true, eventsUsed, eventsLimit });
+    const wallet = await getOrCreateWallet(req.userId!);
+    const costPence = 5;
+    if (wallet.balancePence < costPence) {
+      res.status(402).json({
+        error: "insufficient_balance",
+        balancePence: wallet.balancePence,
+        costPence,
+        message: "Top up your wallet to continue using GoRigo AI.",
+      });
       return;
     }
 
@@ -107,13 +113,19 @@ router.post("/", requireAuth, async (req, res, next) => {
 
     await recordUsage(req.userId!, businessId, "orchestrate");
 
+    const { balancePence } = await checkWalletAndDebit(
+      req.userId!,
+      "orchestrate",
+      "AI orchestration",
+      { businessId },
+    );
+
     sendSSE(res, "done", {
       sessionMode: sessionMode ?? null,
       sessionStep: null,
       sessionTotalSteps: null,
       toolsUsed: [],
-      usage: eventsUsed + 1,
-      eventsLimit,
+      walletBalancePence: balancePence,
     });
 
     res.end();

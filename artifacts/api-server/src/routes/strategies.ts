@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import { strategiesTable, userProfilesTable, businessesTable } from "@workspace/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
-import { checkUsageLimit, recordUsage } from "../lib/usage.js";
+import { checkWalletAndDebit, getOrCreateWallet, recordUsage } from "../lib/usage.js";
 import { getDecryptedKey } from "./keys.js";
 import { generateToken } from "../lib/crypto.js";
 import { openai as replitOpenAI } from "@workspace/integrations-openai-ai-server";
@@ -148,9 +148,15 @@ router.post("/generate", async (req, res, next) => {
       return;
     }
 
-    const { allowed, eventsUsed, eventsLimit } = await checkUsageLimit(req.userId!);
-    if (!allowed) {
-      res.status(429).json({ error: "usage_limit", upgrade: true, eventsUsed, eventsLimit });
+    const wallet = await getOrCreateWallet(req.userId!);
+    const costPence = 5;
+    if (wallet.balancePence < costPence) {
+      res.status(402).json({
+        error: "insufficient_balance",
+        balancePence: wallet.balancePence,
+        costPence,
+        message: "Top up your wallet to continue using GoRigo AI.",
+      });
       return;
     }
 
@@ -285,6 +291,7 @@ Be specific, actionable, and tailored to the user's actual business context. Use
         content: fullResponse,
       });
       await recordUsage(req.userId!, businessId, "strategy_generate");
+      await checkWalletAndDebit(req.userId!, "strategy_generate", "Strategy generation", { businessId, framework });
     }
 
     sendSSE(res, "done", { framework, savedId });
