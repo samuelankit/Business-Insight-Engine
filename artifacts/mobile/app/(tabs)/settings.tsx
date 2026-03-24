@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
 import { TopUpModal } from "@/components/TopUpModal";
@@ -21,6 +22,7 @@ import { TopUpModal } from "@/components/TopUpModal";
 const GOLD = Colors.gold;
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const { token, userId, activeBusinessId, logout, isAdmin, adminEmail } = useApp();
   const queryClient = useQueryClient();
   const [showApiKey, setShowApiKey] = useState(false);
@@ -484,6 +486,26 @@ export default function SettingsScreen() {
             </View>
           </View>
         )}
+
+        {/* GoRigo AI Team */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>About GoRigo</Text>
+          <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => router.push("/org-chart?gorigo=1")}
+            >
+              <View style={styles.menuIcon}>
+                <Feather name="users" size={16} color={GOLD} />
+              </View>
+              <View style={styles.menuInfo}>
+                <Text style={styles.menuLabel}>Meet the GoRigo AI Team</Text>
+                <Text style={styles.menuSubtext}>GoRigo's AI Operations — who keeps it all running</Text>
+              </View>
+              <Feather name="chevron-right" size={16} color="#555" />
+            </TouchableOpacity>
+          </View>
+        </View>
 
         {/* Danger zone */}
         <View style={styles.section}>
@@ -1055,4 +1077,21 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.5 },
   saveBtnText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#0A0A0A" },
+  menuRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+  },
+  menuIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.goldMuted,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  menuInfo: { flex: 1 },
+  menuLabel: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#FFFFFF" },
+  menuSubtext: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#8A8A8A", marginTop: 2 },
 });

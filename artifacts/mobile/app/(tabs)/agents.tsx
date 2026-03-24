@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
 
@@ -34,9 +35,21 @@ interface AgentTemplate {
   name: string;
   description: string;
   type: string;
+  systemPrompt?: string;
+}
+
+interface OrgChart {
+  id: string;
+  name: string;
+  goalText: string;
+  verticalSlug: string;
+  status: string;
+  nodeCount: number;
+  createdAt: string;
 }
 
 export default function AgentsScreen() {
+  const router = useRouter();
   const { token, activeBusinessId } = useApp();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -63,6 +76,16 @@ export default function AgentsScreen() {
       return resp.ok ? resp.json() : [];
     },
     enabled: !!token,
+  });
+
+  const { data: orgCharts = [] } = useQuery<OrgChart[]>({
+    queryKey: ["org-charts", activeBusinessId],
+    queryFn: async () => {
+      if (!activeBusinessId) return [];
+      const resp = await fetch(`${apiBase}/agent-orgs?businessId=${activeBusinessId}`, { headers });
+      return resp.ok ? resp.json() : [];
+    },
+    enabled: !!token && !!activeBusinessId,
   });
 
   const { data: pendingActions = [] } = useQuery<any[]>({
@@ -146,9 +169,10 @@ export default function AgentsScreen() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pending-actions"] }),
   });
 
+  const hasOrgCharts = orgCharts.length > 0;
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>AI Agents</Text>
         <TouchableOpacity style={styles.addBtn} onPress={() => setShowCreate(true)}>
@@ -157,6 +181,63 @@ export default function AgentsScreen() {
       </View>
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+        {/* Build My AI Team — primary CTA */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.buildTeamCard}
+            onPress={() => router.push("/org-brainstorm")}
+            activeOpacity={0.85}
+          >
+            <View style={styles.buildTeamLeft}>
+              <View style={styles.buildTeamIcon}>
+                <Feather name="users" size={22} color="#0A0A0A" />
+              </View>
+              <View style={styles.buildTeamInfo}>
+                <Text style={styles.buildTeamTitle}>Build My AI Team</Text>
+                <Text style={styles.buildTeamSubtitle}>
+                  Create a personalised virtual team with roles, KPIs, and a visual org chart
+                </Text>
+              </View>
+            </View>
+            <Feather name="chevron-right" size={18} color="#0A0A0A" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Org Charts */}
+        {hasOrgCharts && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>My AI Teams</Text>
+            {orgCharts.map((chart) => (
+              <TouchableOpacity
+                key={chart.id}
+                style={styles.orgChartCard}
+                onPress={() => router.push(`/org-chart?chartId=${chart.id}`)}
+                activeOpacity={0.85}
+              >
+                <View style={styles.orgChartLeft}>
+                  <View style={styles.orgChartIcon}>
+                    <Feather name="git-branch" size={18} color={GOLD} />
+                  </View>
+                  <View style={styles.orgChartInfo}>
+                    <Text style={styles.orgChartName}>{chart.name}</Text>
+                    <Text style={styles.orgChartMeta}>
+                      {chart.nodeCount} AI Specialist{chart.nodeCount !== 1 ? "s" : ""} · {chart.verticalSlug.replace(/_/g, " ")}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.orgChartRight}>
+                  <View style={[styles.statusBadge, chart.status === "active" ? styles.statusBadgeActive : styles.statusBadgeDraft]}>
+                    <Text style={[styles.statusBadgeText, chart.status === "active" && styles.statusBadgeTextActive]}>
+                      {chart.status}
+                    </Text>
+                  </View>
+                  <Feather name="chevron-right" size={16} color="#555" />
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         {/* Pending approvals */}
         {pendingActions.length > 0 && (
           <View style={styles.section}>
@@ -191,14 +272,14 @@ export default function AgentsScreen() {
 
         {/* My agents */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>My Agents</Text>
+          <Text style={styles.sectionTitle}>Individual Agents</Text>
           {isLoading ? (
             <Text style={styles.emptyText}>Loading agents...</Text>
           ) : agents.length === 0 ? (
             <View style={styles.emptyCard}>
               <Feather name="cpu" size={32} color="#2A2A2A" />
-              <Text style={styles.emptyText}>No agents yet</Text>
-              <Text style={styles.emptySubtext}>Create an agent or start from a template below</Text>
+              <Text style={styles.emptyText}>No individual agents yet</Text>
+              <Text style={styles.emptySubtext}>Create an agent manually or use the "Build My AI Team" feature above to get a full org chart</Text>
             </View>
           ) : (
             agents.map((agent) => (
@@ -345,6 +426,60 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 12,
   },
+  buildTeamCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: GOLD,
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+  },
+  buildTeamLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  buildTeamIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(0,0,0,0.15)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  buildTeamInfo: { flex: 1 },
+  buildTeamTitle: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#0A0A0A" },
+  buildTeamSubtitle: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#0A0A0A", opacity: 0.7, marginTop: 3, lineHeight: 16 },
+  orgChartCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A1A1A",
+    borderColor: "#2A2A2A",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    gap: 12,
+  },
+  orgChartLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  orgChartIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.goldMuted,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  orgChartInfo: { flex: 1 },
+  orgChartName: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#FFFFFF" },
+  orgChartMeta: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#8A8A8A", marginTop: 2, textTransform: "capitalize" },
+  orgChartRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  statusBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: "#2A2A2A",
+  },
+  statusBadgeActive: { backgroundColor: "#22C55E22" },
+  statusBadgeDraft: { backgroundColor: "#2A2A2A" },
+  statusBadgeText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#555", textTransform: "capitalize" },
+  statusBadgeTextActive: { color: "#22C55E" },
   approvalCard: {
     flexDirection: "row",
     alignItems: "center",

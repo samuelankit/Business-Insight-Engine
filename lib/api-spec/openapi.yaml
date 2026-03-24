@@ -44,6 +44,8 @@ tags:
     description: Admin console
   - name: networking
     description: Business networking and matchmaking
+  - name: agent-orgs
+    description: AI agent organisational hierarchy (org charts, archetypes, performance)
 
 paths:
   /healthz:
@@ -1963,6 +1965,206 @@ paths:
                     type: string
                     nullable: true
 
+  # ───── Agent Orgs ─────
+  /agent-orgs/gorigo:
+    get:
+      operationId: getGorigoTeam
+      tags: [agent-orgs]
+      summary: Get GoRigo's internal AI team
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: GoRigo team config
+
+  /agent-orgs/archetypes:
+    get:
+      operationId: listArchetypes
+      tags: [agent-orgs]
+      summary: List available AI agent archetypes
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: vertical
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of archetypes
+
+  /agent-orgs/generate:
+    post:
+      operationId: generateOrgChart
+      tags: [agent-orgs]
+      summary: Generate an AI org chart from business context
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateOrgRequest"
+      responses:
+        "200":
+          description: Generated org chart nodes (not persisted)
+        "403":
+          description: Business access denied
+        "429":
+          description: Usage limit reached
+
+  /agent-orgs:
+    get:
+      operationId: listOrgCharts
+      tags: [agent-orgs]
+      summary: List org charts for a business
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: businessId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of org charts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentOrgChart"
+    post:
+      operationId: createOrgChart
+      tags: [agent-orgs]
+      summary: Persist a confirmed org chart
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrgRequest"
+      responses:
+        "201":
+          description: Created org chart
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentOrgChart"
+        "403":
+          description: Tier limit or access denied
+
+  /agent-orgs/{id}:
+    get:
+      operationId: getOrgChart
+      tags: [agent-orgs]
+      summary: Get a single org chart with full node tree
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Org chart with nodes
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteOrgChart
+      tags: [agent-orgs]
+      summary: Soft-delete an org chart
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+
+  /agent-orgs/{id}/performance:
+    get:
+      operationId: getOrgChartPerformance
+      tags: [agent-orgs]
+      summary: Get KPI snapshots for all nodes in a chart (24h cached)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Node performance summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentPerformanceSummary"
+        "404":
+          description: Not found
+
+  /agent-orgs/nodes/{nodeId}/performance:
+    get:
+      operationId: getNodePerformance
+      tags: [agent-orgs]
+      summary: Get KPI snapshot for a single org chart node
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: nodeId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Node performance summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentPerformanceSummary"
+        "404":
+          description: Not found
+
+  /agent-orgs/nodes/{nodeId}/assessment:
+    post:
+      operationId: generateNodeAssessment
+      tags: [agent-orgs]
+      summary: Generate or retrieve cached AI performance assessment for a node
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: nodeId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Assessment paragraph (cached 24h)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentResponse"
+        "404":
+          description: Not found
+        "429":
+          description: Usage limit reached
+
 components:
   schemas:
     HealthStatus:
@@ -2973,6 +3175,148 @@ components:
         poolIdle:
           type: integer
       required: [db, uptime, memoryMb, poolActive, poolIdle]
+
+    # ───── Agent Orgs Schemas ─────
+    AgentOrgChart:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        goalText:
+          type: string
+        verticalSlug:
+          type: string
+        status:
+          type: string
+        nodeCount:
+          type: integer
+        businessId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, name, goalText, verticalSlug, status, nodeCount, businessId, createdAt, updatedAt]
+
+    OrgKPI:
+      type: object
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        unit:
+          type: string
+        value:
+          type: number
+        formattedValue:
+          type: string
+      required: [key, label, unit, value, formattedValue]
+
+    AgentPerformanceSummary:
+      type: object
+      properties:
+        agentId:
+          type: string
+        archetypeSlug:
+          type: string
+        totalRuns:
+          type: integer
+        successfulRuns:
+          type: integer
+        successRate:
+          type: number
+        lastRunAt:
+          type: string
+          nullable: true
+        lastOutput:
+          type: string
+          nullable: true
+        statusIndicator:
+          type: string
+          enum: [green, amber, red]
+        kpis:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrgKPI"
+        trendLast30Days:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              runs:
+                type: integer
+        assessmentParagraph:
+          type: string
+          nullable: true
+        assessmentCachedAt:
+          type: string
+          nullable: true
+      required: [agentId, archetypeSlug, totalRuns, successfulRuns, successRate, statusIndicator, kpis, trendLast30Days]
+
+    GenerateOrgRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        goalText:
+          type: string
+        vertical:
+          type: string
+        businessType:
+          type: string
+        targetAudience:
+          type: string
+        existingTools:
+          type: string
+        budgetScale:
+          type: string
+      required: [businessId, goalText]
+
+    CreateOrgRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        orgName:
+          type: string
+        goalText:
+          type: string
+        vertical:
+          type: string
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              archetypeSlug:
+                type: string
+              humanName:
+                type: string
+              roleSummary:
+                type: string
+              parentIndex:
+                type: integer
+                nullable: true
+            required: [archetypeSlug, humanName, roleSummary, parentIndex]
+      required: [businessId, orgName, goalText, nodes]
+
+    AssessmentResponse:
+      type: object
+      properties:
+        assessmentParagraph:
+          type: string
+        assessmentCachedAt:
+          type: string
+        cached:
+          type: boolean
+      required: [assessmentParagraph, assessmentCachedAt, cached]
 
 # ── Networking ──
     NetworkStatus:

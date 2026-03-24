@@ -2,6 +2,7 @@ export * from "./users";
 export * from "./businesses";
 export * from "./apiKeys";
 export * from "./agents";
+export * from "./agentOrgs";
 export * from "./tools";
 export * from "./usage";
 export * from "./team";

@@ -719,8 +719,18 @@ export default function OnboardingScreen() {
             </View>
             <Text style={styles.stepTitle}>You're all set!</Text>
             <Text style={styles.stepSubtitle}>
-              GoRigo is ready to help you run and grow your business. Head to Strategies to generate your first AI analysis.
+              GoRigo is ready to help you run and grow your business. Head to Strategies to generate your first AI analysis, or build your AI specialist team in the Agents tab.
             </Text>
+            <TouchableOpacity
+              style={styles.buildTeamBtn}
+              onPress={async () => {
+                await completeOnboarding();
+                router.replace("/org-brainstorm");
+              }}
+            >
+              <Feather name="cpu" size={16} color="#0A0A0A" />
+              <Text style={styles.buildTeamBtnText}>Build My AI Team First</Text>
+            </TouchableOpacity>
           </View>
         );
     }
@@ -1072,6 +1082,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 32,
     alignSelf: "center",
+  },
+  buildTeamBtn: {
+    marginTop: 24,
+    backgroundColor: GOLD,
+    borderRadius: 14,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "stretch",
+    justifyContent: "center",
+  },
+  buildTeamBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    color: "#0A0A0A",
   },
   footer: {
     padding: 20,

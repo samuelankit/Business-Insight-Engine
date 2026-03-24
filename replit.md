@@ -34,7 +34,7 @@ artifacts-monorepo/
 
 ## API Server (`artifacts/api-server`)
 
-Express 5 server with **20 route groups** mounted at `/api`:
+Express 5 server with **22 route groups** mounted at `/api`:
 
 | Route | Description |
 |---|---|
@@ -59,6 +59,7 @@ Express 5 server with **20 route groups** mounted at `/api`:
 | `/api/profile` | User profile CRUD (displayName, email, country, accountType, intent, background, tocAcceptedAt) |
 | `/api/strategies` | AI strategy generation (SSE streaming) + history for 7 frameworks |
 | `/api/networking` | Business Networking Module: opt-in/GDPR consent, Rigo matches, connection requests, agent qualification, A's decision flow, My Network, follow-ups, draft intro |
+| `/api/agent-orgs` | AI Org chart: generate, list, view, delete; performance snapshots; archetypes; GoRigo team |
 
 ### Key Security Features
 - **Rate limiting**: AI 20/min, auth 10/min, general 100/min, webhooks 200/min
@@ -74,17 +75,21 @@ pnpm --filter @workspace/api-server run dev
 
 ## Mobile App (`artifacts/mobile`)
 
-Expo React Native app with 6 screens:
+Expo React Native app with 7 screens:
 
 | Screen | Description |
 |---|---|
 | `app/(tabs)/index.tsx` | Dashboard — AI chat with mode chips (Deep Research, Strategy SWOT, Brainstorm, Business Plan); Rigo proactively surfaces networking updates |
-| `app/(tabs)/agents.tsx` | Agents — list AI agents, view status, approve pending actions |
+| `app/(tabs)/agents.tsx` | Agents — gold "Build My AI Team" CTA, org chart list, individual agents, view status, approve pending actions |
 | `app/(tabs)/communications.tsx` | Communications — contacts list + campaign management |
 | `app/(tabs)/network.tsx` | **Network** (paid) — GDPR consent + criteria setup, Rigo Matches, Pending Decisions, My Network; free users see upgrade screen |
 | `app/(tabs)/strategies.tsx` | Strategies — 7 AI framework analyses (SWOT, Porter's 5 Forces, OKRs, Blue Ocean, BMC, GTM, Competitive) |
-| `app/(tabs)/settings.tsx` | Settings — business info, API keys, team management, plan/usage |
+| `app/(tabs)/settings.tsx` | Settings — business info, API keys, team management, plan/usage, Meet GoRigo's AI Team |
 | `app/onboarding.tsx` | 9-step onboarding: Welcome → Name & Email → ToC/Privacy → Country → Account Type → Intent → Background → Business Setup (incl. API key) → Done |
+| `app/org-brainstorm.tsx` | Guided 5-step AI Team brainstorm — collects goal, vertical, team size, priorities, tools; sends to /generate |
+| `app/org-chart.tsx` | Visual org chart (WebView + D3) with My Team / GoRigo's Team toggle; tap node for role sheet |
+| `app/deep-assessment.tsx` | Deep Assessment screen — sparkline, breakdown table, AI narrative assessment with 24h cache |
+| `components/AgentRoleSheet.tsx` | Bottom sheet with Role + Performance tabs for org chart nodes |
 
 ### Mobile Design System
 - **Brand color**: Gold `#F5A623`
@@ -105,8 +110,8 @@ pnpm --filter @workspace/mobile run dev
 
 ## Database (`lib/db`)
 
-**16 schema files:**
-- `users` (now includes `email`, `email_verified` columns), `businesses` (now includes `accountType`, `intent`, `background` columns), `apiKeys`, `agents`, `tools`, `usage` (events + subscriptions + wallets), `team`, `contacts`, `campaigns`, `notifications`, `knowledge`, `sessions`, `profiles` (`user_profiles` table), `strategies` (`strategies` table), `networking` (5 tables: `network_profiles`, `network_matches`, `network_connections`, `network_qualification_logs`, `network_followups`)
+**19 schema files:**
+- `users` (now includes `email`, `email_verified` columns), `businesses` (now includes `accountType`, `intent`, `background` columns), `apiKeys`, `agents`, `tools`, `usage` (events + subscriptions + wallets), `team`, `contacts`, `campaigns`, `notifications`, `knowledge`, `sessions`, `profiles` (`user_profiles` table), `strategies` (`strategies` table), `networking` (5 tables: `network_profiles`, `network_matches`, `network_connections`, `network_qualification_logs`, `network_followups`), `agentOrgs` (3 tables: `agent_org_charts`, `agent_org_nodes`, `agent_performance_snapshots`)
 
 Push schema to DB (uses drizzle-kit push — no migration files needed):
 ```bash

@@ -64,6 +64,8 @@ const METERED_EVENTS = [
   "network_intro_sent",
   "network_intro_draft",
   "network_followup_trigger",
+  "org_generate",
+  "org_assessment",
 ];
 
 export async function recordUsage(

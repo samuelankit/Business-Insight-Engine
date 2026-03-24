@@ -24,6 +24,7 @@ import strategiesRouter from "./strategies.js";
 import analyticsRouter from "./analytics.js";
 import paymentsRouter from "./payments.js";
 import networkingRouter from "./networking.js";
+import agentOrgsRouter from "./agentOrgs.js";
 
 const router: IRouter = Router();
 
@@ -55,5 +56,6 @@ router.use("/strategies", strategiesRouter);
 router.use("/analytics", analyticsRouter);
 router.use("/payments", paymentsRouter);
 router.use("/networking", networkingRouter);
+router.use("/agent-orgs", agentOrgsRouter);
 
 export default router;
