@@ -16,7 +16,7 @@ router.post("/topup/intent", requireAuth, async (req, res, next) => {
       return;
     }
 
-    const { amountPence } = req.body;
+    const { amountPence, webReturnUrl } = req.body;
     if (typeof amountPence !== "number" || !Number.isInteger(amountPence)) {
       res.status(400).json({ error: "amountPence must be an integer" });
       return;
@@ -38,6 +38,33 @@ router.post("/topup/intent", requireAuth, async (req, res, next) => {
       : process.env["REPLIT_DOMAINS"]
         ? `https://${process.env["REPLIT_DOMAINS"]?.split(",")[0]}`
         : "https://localhost";
+
+    const allowedReturnOrigins = new Set<string>();
+    allowedReturnOrigins.add(new URL(domain).origin);
+    if (process.env["REPLIT_DOMAINS"]) {
+      for (const d of process.env["REPLIT_DOMAINS"].split(",")) {
+        const trimmed = d.trim();
+        if (trimmed) allowedReturnOrigins.add(`https://${trimmed}`);
+      }
+    }
+    if (process.env["REPLIT_DEV_DOMAIN"]) {
+      allowedReturnOrigins.add(`https://${process.env["REPLIT_DEV_DOMAIN"]}`);
+    }
+    allowedReturnOrigins.add("http://localhost");
+    allowedReturnOrigins.add("https://localhost");
+
+    let returnBase = domain;
+    if (typeof webReturnUrl === "string" && webReturnUrl) {
+      try {
+        const parsedReturn = new URL(webReturnUrl);
+        const returnOrigin = parsedReturn.origin;
+        if (allowedReturnOrigins.has(returnOrigin)) {
+          returnBase = webReturnUrl.replace(/\/$/, "");
+        }
+      } catch {
+        // Invalid URL, fall back to default domain
+      }
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -61,8 +88,8 @@ router.post("/topup/intent", requireAuth, async (req, res, next) => {
           type: "wallet_topup",
         },
       },
-      success_url: `${domain}/?topup=success&amount=${amountPence}`,
-      cancel_url: `${domain}/?topup=cancelled`,
+      success_url: `${returnBase}?topup=success&amount=${amountPence}`,
+      cancel_url: `${returnBase}?topup=cancelled`,
     });
 
     res.json({

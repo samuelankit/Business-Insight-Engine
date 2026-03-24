@@ -56,6 +56,28 @@ router.get("/plans", (_req, res) => {
   res.json(PLANS);
 });
 
+router.get("/subscription", async (req, res, next) => {
+  try {
+    const [sub] = await db
+      .select({
+        planId: userSubscriptionsTable.planId,
+        status: userSubscriptionsTable.status,
+        periodEnd: userSubscriptionsTable.periodEnd,
+      })
+      .from(userSubscriptionsTable)
+      .where(eq(userSubscriptionsTable.userId, req.userId!))
+      .limit(1);
+
+    res.json({
+      planId: sub?.planId ?? "free",
+      status: sub?.status ?? "active",
+      periodEnd: sub?.periodEnd?.toISOString() ?? null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/wallet", async (req, res, next) => {
   try {
     const wallet = await getOrCreateWallet(req.userId!);
