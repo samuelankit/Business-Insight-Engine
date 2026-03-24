@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.6",
+    "@types/nodemailer": "^7.0.11",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/integrations-openai-ai-server": "workspace:*",
@@ -20,6 +21,7 @@
     "express": "^5",
     "express-rate-limit": "^8.3.1",
     "jose": "^6.2.2",
+    "nodemailer": "^8.0.3",
     "pino": "^9",
     "pino-http": "^10",
     "stripe": "^20.4.1",

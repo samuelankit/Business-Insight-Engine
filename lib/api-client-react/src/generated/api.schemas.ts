@@ -816,6 +816,186 @@ export interface SystemHealth {
   poolIdle: number;
 }
 
+export interface NetworkStatus {
+  isPaid: boolean;
+  isOptedIn: boolean;
+  hasGdprConsent: boolean;
+  hasCriteria: boolean;
+}
+
+export type NetworkOptInRequestOpportunityTypesItem =
+  (typeof NetworkOptInRequestOpportunityTypesItem)[keyof typeof NetworkOptInRequestOpportunityTypesItem];
+
+export const NetworkOptInRequestOpportunityTypesItem = {
+  Partnership: "Partnership",
+  Client: "Client",
+  Talent: "Talent",
+  Supplier: "Supplier",
+  Collaboration: "Collaboration",
+} as const;
+
+export interface NetworkOptInRequest {
+  businessId: string;
+  opportunityTypes?: NetworkOptInRequestOpportunityTypesItem[];
+  sectorPreferences?: string[];
+  /** @nullable */
+  dealBreakers?: string | null;
+  /** @nullable */
+  mustHaves?: string | null;
+}
+
+export interface NetworkMatch {
+  id: string;
+  matchedBusinessId: string;
+  businessName: string;
+  sector: string;
+  /** @nullable */
+  matchReason?: string | null;
+  matchStrength: number;
+  opportunityType: string;
+}
+
+export type ConnectionRequestOpportunityType =
+  (typeof ConnectionRequestOpportunityType)[keyof typeof ConnectionRequestOpportunityType];
+
+export const ConnectionRequestOpportunityType = {
+  Partnership: "Partnership",
+  Client: "Client",
+  Talent: "Talent",
+  Supplier: "Supplier",
+  Collaboration: "Collaboration",
+} as const;
+
+export interface ConnectionRequest {
+  businessId: string;
+  targetBusinessId: string;
+  opportunityType: ConnectionRequestOpportunityType;
+  matchId?: string;
+}
+
+export type ConnectionCreatedCostEstimate = {
+  maxTurns: number;
+  estimatedAiEvents: number;
+  estimatedTokens: number;
+  note: string;
+};
+
+export interface ConnectionCreated {
+  connectionId: string;
+  status: string;
+  firstQuestion?: string;
+  costEstimate?: ConnectionCreatedCostEstimate;
+}
+
+export interface ConnectionDecisionResult {
+  success: boolean;
+  status: string;
+  /** @nullable */
+  handoffMode?: string | null;
+}
+
+export type PendingConnectionQualificationTranscriptItem = {
+  turn?: number;
+  question?: string;
+  /** @nullable */
+  response?: string | null;
+};
+
+export interface PendingConnection {
+  connectionId: string;
+  status: string;
+  opportunityType: string;
+  receiverBusinessName: string;
+  receiverSector: string;
+  /** @nullable */
+  qualificationSummary?: string | null;
+  /** @nullable */
+  agentRecommendation?: string | null;
+  matchStrength: number;
+  qualificationTranscript: PendingConnectionQualificationTranscriptItem[];
+  createdAt: string;
+}
+
+export type QualificationStateTurnsItem = {
+  id?: string;
+  turn?: number;
+  question?: string;
+  /** @nullable */
+  response?: string | null;
+  isComplete?: boolean;
+  /** @nullable */
+  agentRecommendation?: string | null;
+};
+
+export interface QualificationState {
+  connectionId: string;
+  status: string;
+  isReceiver: boolean;
+  turns: QualificationStateTurnsItem[];
+  /** @nullable */
+  qualificationSummary?: string | null;
+  /** @nullable */
+  agentRecommendation?: string | null;
+}
+
+export interface QualificationResult {
+  complete: boolean;
+  nextQuestion?: string;
+  turnsRemaining?: number;
+  summary?: string;
+  recommendation?: string;
+  status: string;
+}
+
+export type NetworkConnectionFollowupsItem = {
+  id?: string;
+  promptText?: string;
+  scheduledAt?: string;
+  /** @nullable */
+  completedAt?: string | null;
+  isDraft?: boolean;
+};
+
+export type NetworkConnectionQualificationTranscriptItem = {
+  turn?: number;
+  /** @nullable */
+  question?: string | null;
+  /** @nullable */
+  response?: string | null;
+  isComplete?: boolean;
+};
+
+export interface NetworkConnection {
+  connectionId: string;
+  otherBusinessName: string;
+  otherSector: string;
+  opportunityType: string;
+  /** @nullable */
+  handoffMode?: string | null;
+  status: string;
+  /** @nullable */
+  agentRecommendation?: string | null;
+  /** @nullable */
+  qualificationSummary?: string | null;
+  isRequester: boolean;
+  followups: NetworkConnectionFollowupsItem[];
+  qualificationTranscript: NetworkConnectionQualificationTranscriptItem[];
+  connectedAt: string;
+}
+
+export interface IncomingQualification {
+  connectionId: string;
+  opportunityType: string;
+  requesterBusinessName: string;
+  requesterSector: string;
+  totalTurns: number;
+  completedTurns: number;
+  /** @nullable */
+  currentQuestion?: string | null;
+  /** @nullable */
+  currentTurnId?: string | null;
+}
+
 export type TranscribeAudioBody = {
   audio?: Blob;
   businessId?: string;
@@ -937,4 +1117,94 @@ export type ListAdminUsersParams = {
   page?: number;
   limit?: number;
   search?: string;
+};
+
+export type GetNetworkStatusParams = {
+  businessId: string;
+};
+
+export type GetNetworkMatchesParams = {
+  businessId: string;
+};
+
+export type GetPendingDecisionsParams = {
+  businessId: string;
+};
+
+export type GetIncomingQualificationsParams = {
+  businessId: string;
+};
+
+export type SubmitQualificationResponseBody = {
+  response: string;
+};
+
+export type SubmitConnectionDecisionBodyDecision =
+  (typeof SubmitConnectionDecisionBodyDecision)[keyof typeof SubmitConnectionDecisionBodyDecision];
+
+export const SubmitConnectionDecisionBodyDecision = {
+  accept: "accept",
+  decline: "decline",
+} as const;
+
+export type SubmitConnectionDecisionBodyHandoffMode =
+  (typeof SubmitConnectionDecisionBodyHandoffMode)[keyof typeof SubmitConnectionDecisionBodyHandoffMode];
+
+export const SubmitConnectionDecisionBodyHandoffMode = {
+  rigo: "rigo",
+  direct: "direct",
+} as const;
+
+export type SubmitConnectionDecisionBody = {
+  decision: SubmitConnectionDecisionBodyDecision;
+  handoffMode?: SubmitConnectionDecisionBodyHandoffMode;
+};
+
+export type DraftIntroMessage200 = {
+  draft: string;
+};
+
+export type ApproveSendIntro200 = {
+  success: boolean;
+  message: string;
+  /** @nullable */
+  draft?: string | null;
+  sentTo: string;
+  aiDisclosure: string;
+};
+
+export type GetMyNetworkParams = {
+  businessId: string;
+};
+
+export type GetNetworkFollowupsParams = {
+  businessId: string;
+};
+
+export type GetNetworkFollowups200Item = {
+  id: string;
+  connectionId: string;
+  promptText: string;
+  scheduledAt: string;
+  /** @nullable */
+  completedAt?: string | null;
+  isDraft: boolean;
+  hasDraftContent: boolean;
+};
+
+export type ProcessNetworkFollowupsBody = {
+  businessId: string;
+};
+
+export type ProcessNetworkFollowups200 = {
+  processed: number;
+  total: number;
+};
+
+export type GetNetworkSummaryParams = {
+  businessId: string;
+};
+
+export type GetNetworkSummary200 = {
+  summary?: string | null;
 };

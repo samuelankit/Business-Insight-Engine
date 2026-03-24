@@ -28,11 +28,15 @@ import type {
   AgentTemplate,
   ApiKey,
   ApplyReferralCodeBody,
+  ApproveSendIntro200,
   BillingPortalResponse,
   Business,
   BusinessInsights,
   Campaign,
   ConnectToolRequest,
+  ConnectionCreated,
+  ConnectionDecisionResult,
+  ConnectionRequest,
   Contact,
   ContactList,
   ContactsListResponse,
@@ -44,17 +48,28 @@ import type {
   CreateInviteRequest,
   DeviceAuthRequest,
   DeviceAuthResponse,
+  DraftIntroMessage200,
   ExitSessionBody,
   GetActiveSessionParams,
   GetAgentLogsParams,
+  GetIncomingQualificationsParams,
+  GetMyNetworkParams,
   GetMyTeamRoleParams,
+  GetNetworkFollowups200Item,
+  GetNetworkFollowupsParams,
+  GetNetworkMatchesParams,
+  GetNetworkStatusParams,
+  GetNetworkSummary200,
+  GetNetworkSummaryParams,
   GetNotificationPreferencesParams,
+  GetPendingDecisionsParams,
   GetReportSummaryParams,
   GetSessionHistoryParams,
   GetTeamActivityParams,
   HealthStatus,
   ImportContactsRequest,
   ImportContactsResponse,
+  IncomingQualification,
   JoinTeamRequest,
   KnowledgeDocument,
   ListAdminUsersParams,
@@ -66,11 +81,20 @@ import type {
   ListPendingApprovalsParams,
   ListTeamInvitesParams,
   ListTeamMembersParams,
+  NetworkConnection,
+  NetworkMatch,
+  NetworkOptInRequest,
+  NetworkStatus,
   NotificationPreferences,
   OrchestrateRequest,
   OrchestrateResponse,
+  PendingConnection,
   Plan,
+  ProcessNetworkFollowups200,
+  ProcessNetworkFollowupsBody,
   PushTokenRequest,
+  QualificationResult,
+  QualificationState,
   ReferralCodeResponse,
   ReferralStats,
   RemovePushTokenBody,
@@ -80,6 +104,8 @@ import type {
   ScheduleCampaignBody,
   SessionStatus,
   SessionSummary,
+  SubmitConnectionDecisionBody,
+  SubmitQualificationResponseBody,
   SuccessResponse,
   SystemHealth,
   TeamActivity,
@@ -6855,6 +6881,1410 @@ export function useGetAdminHealth<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetAdminHealthQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get network opt-in status for current business
+ */
+export const getGetNetworkStatusUrl = (params: GetNetworkStatusParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/networking/status?${stringifiedParams}`
+    : `/api/networking/status`;
+};
+
+export const getNetworkStatus = async (
+  params: GetNetworkStatusParams,
+  options?: RequestInit,
+): Promise<NetworkStatus> => {
+  return customFetch<NetworkStatus>(getGetNetworkStatusUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetNetworkStatusQueryKey = (
+  params?: GetNetworkStatusParams,
+) => {
+  return [`/api/networking/status`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetNetworkStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNetworkStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetNetworkStatusParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNetworkStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetNetworkStatusQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getNetworkStatus>>
+  > = ({ signal }) => getNetworkStatus(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNetworkStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetNetworkStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNetworkStatus>>
+>;
+export type GetNetworkStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get network opt-in status for current business
+ */
+
+export function useGetNetworkStatus<
+  TData = Awaited<ReturnType<typeof getNetworkStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetNetworkStatusParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNetworkStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNetworkStatusQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Opt in to network with GDPR consent and criteria
+ */
+export const getNetworkOptInUrl = () => {
+  return `/api/networking/opt-in`;
+};
+
+export const networkOptIn = async (
+  networkOptInRequest: NetworkOptInRequest,
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(getNetworkOptInUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(networkOptInRequest),
+  });
+};
+
+export const getNetworkOptInMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof networkOptIn>>,
+    TError,
+    { data: BodyType<NetworkOptInRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof networkOptIn>>,
+  TError,
+  { data: BodyType<NetworkOptInRequest> },
+  TContext
+> => {
+  const mutationKey = ["networkOptIn"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof networkOptIn>>,
+    { data: BodyType<NetworkOptInRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return networkOptIn(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type NetworkOptInMutationResult = NonNullable<
+  Awaited<ReturnType<typeof networkOptIn>>
+>;
+export type NetworkOptInMutationBody = BodyType<NetworkOptInRequest>;
+export type NetworkOptInMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Opt in to network with GDPR consent and criteria
+ */
+export const useNetworkOptIn = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof networkOptIn>>,
+    TError,
+    { data: BodyType<NetworkOptInRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof networkOptIn>>,
+  TError,
+  { data: BodyType<NetworkOptInRequest> },
+  TContext
+> => {
+  return useMutation(getNetworkOptInMutationOptions(options));
+};
+
+/**
+ * @summary Get Rigo-curated business matches
+ */
+export const getGetNetworkMatchesUrl = (params: GetNetworkMatchesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/networking/matches?${stringifiedParams}`
+    : `/api/networking/matches`;
+};
+
+export const getNetworkMatches = async (
+  params: GetNetworkMatchesParams,
+  options?: RequestInit,
+): Promise<NetworkMatch[]> => {
+  return customFetch<NetworkMatch[]>(getGetNetworkMatchesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetNetworkMatchesQueryKey = (
+  params?: GetNetworkMatchesParams,
+) => {
+  return [`/api/networking/matches`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetNetworkMatchesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNetworkMatches>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetNetworkMatchesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNetworkMatches>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetNetworkMatchesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getNetworkMatches>>
+  > = ({ signal }) => getNetworkMatches(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNetworkMatches>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetNetworkMatchesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNetworkMatches>>
+>;
+export type GetNetworkMatchesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get Rigo-curated business matches
+ */
+
+export function useGetNetworkMatches<
+  TData = Awaited<ReturnType<typeof getNetworkMatches>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetNetworkMatchesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNetworkMatches>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNetworkMatchesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Send a connection request (triggers qualification)
+ */
+export const getSendConnectionRequestUrl = () => {
+  return `/api/networking/connect`;
+};
+
+export const sendConnectionRequest = async (
+  connectionRequest: ConnectionRequest,
+  options?: RequestInit,
+): Promise<ConnectionCreated> => {
+  return customFetch<ConnectionCreated>(getSendConnectionRequestUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(connectionRequest),
+  });
+};
+
+export const getSendConnectionRequestMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendConnectionRequest>>,
+    TError,
+    { data: BodyType<ConnectionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendConnectionRequest>>,
+  TError,
+  { data: BodyType<ConnectionRequest> },
+  TContext
+> => {
+  const mutationKey = ["sendConnectionRequest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendConnectionRequest>>,
+    { data: BodyType<ConnectionRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return sendConnectionRequest(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendConnectionRequestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendConnectionRequest>>
+>;
+export type SendConnectionRequestMutationBody = BodyType<ConnectionRequest>;
+export type SendConnectionRequestMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Send a connection request (triggers qualification)
+ */
+export const useSendConnectionRequest = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendConnectionRequest>>,
+    TError,
+    { data: BodyType<ConnectionRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendConnectionRequest>>,
+  TError,
+  { data: BodyType<ConnectionRequest> },
+  TContext
+> => {
+  return useMutation(getSendConnectionRequestMutationOptions(options));
+};
+
+/**
+ * @summary Get connections awaiting user's decision
+ */
+export const getGetPendingDecisionsUrl = (
+  params: GetPendingDecisionsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/networking/pending?${stringifiedParams}`
+    : `/api/networking/pending`;
+};
+
+export const getPendingDecisions = async (
+  params: GetPendingDecisionsParams,
+  options?: RequestInit,
+): Promise<PendingConnection[]> => {
+  return customFetch<PendingConnection[]>(getGetPendingDecisionsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPendingDecisionsQueryKey = (
+  params?: GetPendingDecisionsParams,
+) => {
+  return [`/api/networking/pending`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPendingDecisionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPendingDecisions>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPendingDecisionsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPendingDecisions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPendingDecisionsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPendingDecisions>>
+  > = ({ signal }) =>
+    getPendingDecisions(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPendingDecisions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPendingDecisionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPendingDecisions>>
+>;
+export type GetPendingDecisionsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get connections awaiting user's decision
+ */
+
+export function useGetPendingDecisions<
+  TData = Awaited<ReturnType<typeof getPendingDecisions>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPendingDecisionsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPendingDecisions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPendingDecisionsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get incoming qualification requests for B-side (receiver)
+ */
+export const getGetIncomingQualificationsUrl = (
+  params: GetIncomingQualificationsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/networking/incoming?${stringifiedParams}`
+    : `/api/networking/incoming`;
+};
+
+export const getIncomingQualifications = async (
+  params: GetIncomingQualificationsParams,
+  options?: RequestInit,
+): Promise<IncomingQualification[]> => {
+  return customFetch<IncomingQualification[]>(
+    getGetIncomingQualificationsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetIncomingQualificationsQueryKey = (
+  params?: GetIncomingQualificationsParams,
+) => {
+  return [`/api/networking/incoming`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetIncomingQualificationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getIncomingQualifications>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetIncomingQualificationsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getIncomingQualifications>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetIncomingQualificationsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getIncomingQualifications>>
+  > = ({ signal }) =>
+    getIncomingQualifications(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getIncomingQualifications>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetIncomingQualificationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getIncomingQualifications>>
+>;
+export type GetIncomingQualificationsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get incoming qualification requests for B-side (receiver)
+ */
+
+export function useGetIncomingQualifications<
+  TData = Awaited<ReturnType<typeof getIncomingQualifications>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetIncomingQualificationsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getIncomingQualifications>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetIncomingQualificationsQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get qualification dialogue for a connection
+ */
+export const getGetQualificationUrl = (connectionId: string) => {
+  return `/api/networking/connections/${connectionId}/qualification`;
+};
+
+export const getQualification = async (
+  connectionId: string,
+  options?: RequestInit,
+): Promise<QualificationState> => {
+  return customFetch<QualificationState>(getGetQualificationUrl(connectionId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetQualificationQueryKey = (connectionId: string) => {
+  return [`/api/networking/connections/${connectionId}/qualification`] as const;
+};
+
+export const getGetQualificationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getQualification>>,
+  TError = ErrorType<unknown>,
+>(
+  connectionId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getQualification>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetQualificationQueryKey(connectionId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getQualification>>
+  > = ({ signal }) =>
+    getQualification(connectionId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!connectionId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getQualification>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetQualificationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getQualification>>
+>;
+export type GetQualificationQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get qualification dialogue for a connection
+ */
+
+export function useGetQualification<
+  TData = Awaited<ReturnType<typeof getQualification>>,
+  TError = ErrorType<unknown>,
+>(
+  connectionId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getQualification>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetQualificationQueryOptions(connectionId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Submit B's response to qualification question
+ */
+export const getSubmitQualificationResponseUrl = (connectionId: string) => {
+  return `/api/networking/connections/${connectionId}/qualify`;
+};
+
+export const submitQualificationResponse = async (
+  connectionId: string,
+  submitQualificationResponseBody: SubmitQualificationResponseBody,
+  options?: RequestInit,
+): Promise<QualificationResult> => {
+  return customFetch<QualificationResult>(
+    getSubmitQualificationResponseUrl(connectionId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(submitQualificationResponseBody),
+    },
+  );
+};
+
+export const getSubmitQualificationResponseMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitQualificationResponse>>,
+    TError,
+    { connectionId: string; data: BodyType<SubmitQualificationResponseBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof submitQualificationResponse>>,
+  TError,
+  { connectionId: string; data: BodyType<SubmitQualificationResponseBody> },
+  TContext
+> => {
+  const mutationKey = ["submitQualificationResponse"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof submitQualificationResponse>>,
+    { connectionId: string; data: BodyType<SubmitQualificationResponseBody> }
+  > = (props) => {
+    const { connectionId, data } = props ?? {};
+
+    return submitQualificationResponse(connectionId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SubmitQualificationResponseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof submitQualificationResponse>>
+>;
+export type SubmitQualificationResponseMutationBody =
+  BodyType<SubmitQualificationResponseBody>;
+export type SubmitQualificationResponseMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Submit B's response to qualification question
+ */
+export const useSubmitQualificationResponse = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitQualificationResponse>>,
+    TError,
+    { connectionId: string; data: BodyType<SubmitQualificationResponseBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof submitQualificationResponse>>,
+  TError,
+  { connectionId: string; data: BodyType<SubmitQualificationResponseBody> },
+  TContext
+> => {
+  return useMutation(getSubmitQualificationResponseMutationOptions(options));
+};
+
+/**
+ * @summary Accept or decline a connection (A only)
+ */
+export const getSubmitConnectionDecisionUrl = (connectionId: string) => {
+  return `/api/networking/connections/${connectionId}/decide`;
+};
+
+export const submitConnectionDecision = async (
+  connectionId: string,
+  submitConnectionDecisionBody: SubmitConnectionDecisionBody,
+  options?: RequestInit,
+): Promise<ConnectionDecisionResult> => {
+  return customFetch<ConnectionDecisionResult>(
+    getSubmitConnectionDecisionUrl(connectionId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(submitConnectionDecisionBody),
+    },
+  );
+};
+
+export const getSubmitConnectionDecisionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitConnectionDecision>>,
+    TError,
+    { connectionId: string; data: BodyType<SubmitConnectionDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof submitConnectionDecision>>,
+  TError,
+  { connectionId: string; data: BodyType<SubmitConnectionDecisionBody> },
+  TContext
+> => {
+  const mutationKey = ["submitConnectionDecision"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof submitConnectionDecision>>,
+    { connectionId: string; data: BodyType<SubmitConnectionDecisionBody> }
+  > = (props) => {
+    const { connectionId, data } = props ?? {};
+
+    return submitConnectionDecision(connectionId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SubmitConnectionDecisionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof submitConnectionDecision>>
+>;
+export type SubmitConnectionDecisionMutationBody =
+  BodyType<SubmitConnectionDecisionBody>;
+export type SubmitConnectionDecisionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Accept or decline a connection (A only)
+ */
+export const useSubmitConnectionDecision = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitConnectionDecision>>,
+    TError,
+    { connectionId: string; data: BodyType<SubmitConnectionDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof submitConnectionDecision>>,
+  TError,
+  { connectionId: string; data: BodyType<SubmitConnectionDecisionBody> },
+  TContext
+> => {
+  return useMutation(getSubmitConnectionDecisionMutationOptions(options));
+};
+
+/**
+ * @summary Rigo drafts an intro message for a connection
+ */
+export const getDraftIntroMessageUrl = (connectionId: string) => {
+  return `/api/networking/connections/${connectionId}/draft-intro`;
+};
+
+export const draftIntroMessage = async (
+  connectionId: string,
+  options?: RequestInit,
+): Promise<DraftIntroMessage200> => {
+  return customFetch<DraftIntroMessage200>(
+    getDraftIntroMessageUrl(connectionId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getDraftIntroMessageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof draftIntroMessage>>,
+    TError,
+    { connectionId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof draftIntroMessage>>,
+  TError,
+  { connectionId: string },
+  TContext
+> => {
+  const mutationKey = ["draftIntroMessage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof draftIntroMessage>>,
+    { connectionId: string }
+  > = (props) => {
+    const { connectionId } = props ?? {};
+
+    return draftIntroMessage(connectionId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DraftIntroMessageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof draftIntroMessage>>
+>;
+
+export type DraftIntroMessageMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Rigo drafts an intro message for a connection
+ */
+export const useDraftIntroMessage = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof draftIntroMessage>>,
+    TError,
+    { connectionId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof draftIntroMessage>>,
+  TError,
+  { connectionId: string },
+  TContext
+> => {
+  return useMutation(getDraftIntroMessageMutationOptions(options));
+};
+
+/**
+ * @summary Human approves Rigo-drafted intro and marks it sent (Rigo mode)
+ */
+export const getApproveSendIntroUrl = (connectionId: string) => {
+  return `/api/networking/connections/${connectionId}/approve-send`;
+};
+
+export const approveSendIntro = async (
+  connectionId: string,
+  options?: RequestInit,
+): Promise<ApproveSendIntro200> => {
+  return customFetch<ApproveSendIntro200>(
+    getApproveSendIntroUrl(connectionId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getApproveSendIntroMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveSendIntro>>,
+    TError,
+    { connectionId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof approveSendIntro>>,
+  TError,
+  { connectionId: string },
+  TContext
+> => {
+  const mutationKey = ["approveSendIntro"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof approveSendIntro>>,
+    { connectionId: string }
+  > = (props) => {
+    const { connectionId } = props ?? {};
+
+    return approveSendIntro(connectionId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApproveSendIntroMutationResult = NonNullable<
+  Awaited<ReturnType<typeof approveSendIntro>>
+>;
+
+export type ApproveSendIntroMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Human approves Rigo-drafted intro and marks it sent (Rigo mode)
+ */
+export const useApproveSendIntro = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveSendIntro>>,
+    TError,
+    { connectionId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof approveSendIntro>>,
+  TError,
+  { connectionId: string },
+  TContext
+> => {
+  return useMutation(getApproveSendIntroMutationOptions(options));
+};
+
+/**
+ * @summary Get all accepted connections
+ */
+export const getGetMyNetworkUrl = (params: GetMyNetworkParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/networking/my-network?${stringifiedParams}`
+    : `/api/networking/my-network`;
+};
+
+export const getMyNetwork = async (
+  params: GetMyNetworkParams,
+  options?: RequestInit,
+): Promise<NetworkConnection[]> => {
+  return customFetch<NetworkConnection[]>(getGetMyNetworkUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMyNetworkQueryKey = (params?: GetMyNetworkParams) => {
+  return [`/api/networking/my-network`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetMyNetworkQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMyNetwork>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetMyNetworkParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMyNetwork>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMyNetworkQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMyNetwork>>> = ({
+    signal,
+  }) => getMyNetwork(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMyNetwork>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMyNetworkQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMyNetwork>>
+>;
+export type GetMyNetworkQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get all accepted connections
+ */
+
+export function useGetMyNetwork<
+  TData = Awaited<ReturnType<typeof getMyNetwork>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetMyNetworkParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMyNetwork>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMyNetworkQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get all followups for the user
+ */
+export const getGetNetworkFollowupsUrl = (
+  params: GetNetworkFollowupsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/networking/followups?${stringifiedParams}`
+    : `/api/networking/followups`;
+};
+
+export const getNetworkFollowups = async (
+  params: GetNetworkFollowupsParams,
+  options?: RequestInit,
+): Promise<GetNetworkFollowups200Item[]> => {
+  return customFetch<GetNetworkFollowups200Item[]>(
+    getGetNetworkFollowupsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetNetworkFollowupsQueryKey = (
+  params?: GetNetworkFollowupsParams,
+) => {
+  return [`/api/networking/followups`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetNetworkFollowupsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNetworkFollowups>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetNetworkFollowupsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNetworkFollowups>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetNetworkFollowupsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getNetworkFollowups>>
+  > = ({ signal }) =>
+    getNetworkFollowups(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNetworkFollowups>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetNetworkFollowupsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNetworkFollowups>>
+>;
+export type GetNetworkFollowupsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get all followups for the user
+ */
+
+export function useGetNetworkFollowups<
+  TData = Awaited<ReturnType<typeof getNetworkFollowups>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetNetworkFollowupsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNetworkFollowups>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNetworkFollowupsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Process due followups and send outreach to counterparts
+ */
+export const getProcessNetworkFollowupsUrl = () => {
+  return `/api/networking/process-followups`;
+};
+
+export const processNetworkFollowups = async (
+  processNetworkFollowupsBody: ProcessNetworkFollowupsBody,
+  options?: RequestInit,
+): Promise<ProcessNetworkFollowups200> => {
+  return customFetch<ProcessNetworkFollowups200>(
+    getProcessNetworkFollowupsUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(processNetworkFollowupsBody),
+    },
+  );
+};
+
+export const getProcessNetworkFollowupsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof processNetworkFollowups>>,
+    TError,
+    { data: BodyType<ProcessNetworkFollowupsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof processNetworkFollowups>>,
+  TError,
+  { data: BodyType<ProcessNetworkFollowupsBody> },
+  TContext
+> => {
+  const mutationKey = ["processNetworkFollowups"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof processNetworkFollowups>>,
+    { data: BodyType<ProcessNetworkFollowupsBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return processNetworkFollowups(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ProcessNetworkFollowupsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof processNetworkFollowups>>
+>;
+export type ProcessNetworkFollowupsMutationBody =
+  BodyType<ProcessNetworkFollowupsBody>;
+export type ProcessNetworkFollowupsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Process due followups and send outreach to counterparts
+ */
+export const useProcessNetworkFollowups = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof processNetworkFollowups>>,
+    TError,
+    { data: BodyType<ProcessNetworkFollowupsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof processNetworkFollowups>>,
+  TError,
+  { data: BodyType<ProcessNetworkFollowupsBody> },
+  TContext
+> => {
+  return useMutation(getProcessNetworkFollowupsMutationOptions(options));
+};
+
+/**
+ * @summary Get summary for Dashboard Rigo awareness
+ */
+export const getGetNetworkSummaryUrl = (params: GetNetworkSummaryParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/networking/network-summary?${stringifiedParams}`
+    : `/api/networking/network-summary`;
+};
+
+export const getNetworkSummary = async (
+  params: GetNetworkSummaryParams,
+  options?: RequestInit,
+): Promise<GetNetworkSummary200> => {
+  return customFetch<GetNetworkSummary200>(getGetNetworkSummaryUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetNetworkSummaryQueryKey = (
+  params?: GetNetworkSummaryParams,
+) => {
+  return [
+    `/api/networking/network-summary`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetNetworkSummaryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNetworkSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetNetworkSummaryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNetworkSummary>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetNetworkSummaryQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getNetworkSummary>>
+  > = ({ signal }) => getNetworkSummary(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNetworkSummary>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetNetworkSummaryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNetworkSummary>>
+>;
+export type GetNetworkSummaryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get summary for Dashboard Rigo awareness
+ */
+
+export function useGetNetworkSummary<
+  TData = Awaited<ReturnType<typeof getNetworkSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetNetworkSummaryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNetworkSummary>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNetworkSummaryQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

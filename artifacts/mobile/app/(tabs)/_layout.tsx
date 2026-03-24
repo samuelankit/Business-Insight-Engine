@@ -61,6 +61,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="network"
+        options={{
+          title: "Network",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="globe" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="strategies"
         options={{
           title: "Strategies",

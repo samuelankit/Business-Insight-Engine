@@ -1,8 +1,13 @@
 import { Router } from "express";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
-import { conversationsTable } from "@workspace/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import {
+  conversationsTable,
+  networkProfilesTable,
+  networkMatchesTable,
+  networkConnectionsTable,
+} from "@workspace/db/schema";
+import { eq, and, or, desc, gte, count } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { checkWalletAndDebit, getOrCreateWallet, recordUsage } from "../lib/usage.js";
 import { getDecryptedKey } from "./keys.js";
@@ -31,6 +36,54 @@ const MODE_SYSTEM_PROMPTS: Record<string, string> = {
 
 const BASE_SYSTEM_PROMPT =
   "You are GoRigo, an AI business operating system assistant for UK businesses. You help owners manage their business, automate tasks, and make data-driven decisions. Be concise, professional, and practical. Use British English.";
+
+async function getNetworkingContextSummary(userId: string, businessId: string): Promise<string | null> {
+  try {
+    const [profile] = await db
+      .select()
+      .from(networkProfilesTable)
+      .where(and(eq(networkProfilesTable.userId, userId), eq(networkProfilesTable.businessId, businessId)));
+
+    if (!profile?.isOptedIn) return null;
+
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const [newMatches, pendingDecisions, accepted] = await Promise.all([
+      db
+        .select({ cnt: count() })
+        .from(networkMatchesTable)
+        .where(and(eq(networkMatchesTable.userId, userId), gte(networkMatchesTable.createdAt, yesterday))),
+      db
+        .select({ cnt: count() })
+        .from(networkConnectionsTable)
+        .where(and(eq(networkConnectionsTable.requesterUserId, userId), eq(networkConnectionsTable.status, "pending_decision"))),
+      db
+        .select({ cnt: count() })
+        .from(networkConnectionsTable)
+        .where(
+          and(
+            or(eq(networkConnectionsTable.requesterUserId, userId), eq(networkConnectionsTable.receiverUserId, userId)),
+            eq(networkConnectionsTable.status, "accepted"),
+          ),
+        ),
+    ]);
+
+    const newMatchCount = Number(newMatches[0]?.cnt ?? 0);
+    const pendingCount = Number(pendingDecisions[0]?.cnt ?? 0);
+    const acceptedCount = Number(accepted[0]?.cnt ?? 0);
+
+    if (newMatchCount === 0 && pendingCount === 0 && acceptedCount === 0) return null;
+
+    const parts: string[] = [];
+    if (newMatchCount > 0) parts.push(`${newMatchCount} new business match${newMatchCount > 1 ? "es" : ""} available in the Network tab`);
+    if (pendingCount > 0) parts.push(`${pendingCount} connection${pendingCount > 1 ? "s" : ""} awaiting your decision in the Network tab`);
+    if (acceptedCount > 0) parts.push(`${acceptedCount} active business connection${acceptedCount > 1 ? "s" : ""} in your network`);
+
+    return `NETWORKING UPDATE: ${parts.join("; ")}.`;
+  } catch {
+    return null;
+  }
+}
 
 function sendSSE(res: import("express").Response, event: string, data: unknown) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -66,9 +119,14 @@ router.post("/", requireAuth, async (req, res, next) => {
       content: message,
     });
 
-    const systemPrompt = sessionMode
+    const basePrompt = sessionMode
       ? (MODE_SYSTEM_PROMPTS[sessionMode] ?? BASE_SYSTEM_PROMPT)
       : BASE_SYSTEM_PROMPT;
+
+    const networkingSummary = await getNetworkingContextSummary(req.userId!, businessId);
+    const systemPrompt = networkingSummary
+      ? `${basePrompt}\n\n${networkingSummary} If relevant to the user's message or when helpful, proactively mention these networking updates and guide them to the Network tab.`
+      : basePrompt;
 
     const history = await getConversationHistory(req.userId!, businessId);
     const chatMessages = [

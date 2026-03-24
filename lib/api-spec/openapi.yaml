@@ -42,6 +42,8 @@ tags:
     description: Guided sessions
   - name: admin
     description: Admin console
+  - name: networking
+    description: Business networking and matchmaking
 
 paths:
   /healthz:
@@ -1595,6 +1597,371 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SystemHealth"
+# ───── Networking ─────
+  /networking/status:
+    get:
+      operationId: getNetworkStatus
+      tags: [networking]
+      summary: Get network opt-in status for current business
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Network status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkStatus"
+
+  /networking/opt-in:
+    post:
+      operationId: networkOptIn
+      tags: [networking]
+      summary: Opt in to network with GDPR consent and criteria
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NetworkOptInRequest"
+      responses:
+        "200":
+          description: Opt-in successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /networking/matches:
+    get:
+      operationId: getNetworkMatches
+      tags: [networking]
+      summary: Get Rigo-curated business matches
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NetworkMatch"
+
+  /networking/connect:
+    post:
+      operationId: sendConnectionRequest
+      tags: [networking]
+      summary: Send a connection request (triggers qualification)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectionRequest"
+      responses:
+        "201":
+          description: Connection request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionCreated"
+
+  /networking/pending:
+    get:
+      operationId: getPendingDecisions
+      tags: [networking]
+      summary: Get connections awaiting user's decision
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pending connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingConnection"
+
+  /networking/incoming:
+    get:
+      operationId: getIncomingQualifications
+      tags: [networking]
+      summary: Get incoming qualification requests for B-side (receiver)
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Incoming qualification requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IncomingQualification"
+
+  /networking/connections/{connectionId}/qualification:
+    get:
+      operationId: getQualification
+      tags: [networking]
+      summary: Get qualification dialogue for a connection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Qualification state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QualificationState"
+
+  /networking/connections/{connectionId}/qualify:
+    post:
+      operationId: submitQualificationResponse
+      tags: [networking]
+      summary: Submit B's response to qualification question
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                response:
+                  type: string
+              required: [response]
+      responses:
+        "200":
+          description: Qualification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QualificationResult"
+
+  /networking/connections/{connectionId}/decide:
+    post:
+      operationId: submitConnectionDecision
+      tags: [networking]
+      summary: Accept or decline a connection (A only)
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                decision:
+                  type: string
+                  enum: [accept, decline]
+                handoffMode:
+                  type: string
+                  enum: [rigo, direct]
+              required: [decision]
+      responses:
+        "200":
+          description: Decision submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionDecisionResult"
+
+  /networking/connections/{connectionId}/draft-intro:
+    post:
+      operationId: draftIntroMessage
+      tags: [networking]
+      summary: Rigo drafts an intro message for a connection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Drafted intro message
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  draft:
+                    type: string
+                required: [draft]
+
+  /networking/connections/{connectionId}/approve-send:
+    post:
+      operationId: approveSendIntro
+      tags: [networking]
+      summary: Human approves Rigo-drafted intro and marks it sent (Rigo mode)
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Intro approved and sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  draft:
+                    type: ["string", "null"]
+                  sentTo:
+                    type: string
+                  aiDisclosure:
+                    type: string
+                required: [success, message, sentTo, aiDisclosure]
+
+  /networking/my-network:
+    get:
+      operationId: getMyNetwork
+      tags: [networking]
+      summary: Get all accepted connections
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: My network connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NetworkConnection"
+
+  /networking/followups:
+    get:
+      operationId: getNetworkFollowups
+      tags: [networking]
+      summary: Get all followups for the user
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of followups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    connectionId:
+                      type: string
+                    promptText:
+                      type: string
+                    scheduledAt:
+                      type: string
+                    completedAt:
+                      type: ["string", "null"]
+                    isDraft:
+                      type: boolean
+                    hasDraftContent:
+                      type: boolean
+                  required: [id, connectionId, promptText, scheduledAt, isDraft, hasDraftContent]
+
+  /networking/process-followups:
+    post:
+      operationId: processNetworkFollowups
+      tags: [networking]
+      summary: Process due followups and send outreach to counterparts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                businessId:
+                  type: string
+              required: [businessId]
+      responses:
+        "200":
+          description: Followup processing result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processed:
+                    type: integer
+                  total:
+                    type: integer
+                required: [processed, total]
+
+  /networking/network-summary:
+    get:
+      operationId: getNetworkSummary
+      tags: [networking]
+      summary: Get summary for Dashboard Rigo awareness
+      parameters:
+        - name: businessId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Network summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: string
+                    nullable: true
 
 components:
   schemas:
@@ -2606,3 +2973,261 @@ components:
         poolIdle:
           type: integer
       required: [db, uptime, memoryMb, poolActive, poolIdle]
+
+# ── Networking ──
+    NetworkStatus:
+      type: object
+      properties:
+        isPaid:
+          type: boolean
+        isOptedIn:
+          type: boolean
+        hasGdprConsent:
+          type: boolean
+        hasCriteria:
+          type: boolean
+      required: [isPaid, isOptedIn, hasGdprConsent, hasCriteria]
+
+    NetworkOptInRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        opportunityTypes:
+          type: array
+          items:
+            type: string
+            enum: [Partnership, Client, Talent, Supplier, Collaboration]
+        sectorPreferences:
+          type: array
+          items:
+            type: string
+        dealBreakers:
+          type: ["string", "null"]
+        mustHaves:
+          type: ["string", "null"]
+      required: [businessId]
+
+    NetworkMatch:
+      type: object
+      properties:
+        id:
+          type: string
+        matchedBusinessId:
+          type: string
+        businessName:
+          type: string
+        sector:
+          type: string
+        matchReason:
+          type: ["string", "null"]
+        matchStrength:
+          type: integer
+        opportunityType:
+          type: string
+      required: [id, matchedBusinessId, businessName, sector, matchStrength, opportunityType]
+
+    ConnectionRequest:
+      type: object
+      properties:
+        businessId:
+          type: string
+        targetBusinessId:
+          type: string
+        opportunityType:
+          type: string
+          enum: [Partnership, Client, Talent, Supplier, Collaboration]
+        matchId:
+          type: string
+      required: [businessId, targetBusinessId, opportunityType]
+
+    ConnectionCreated:
+      type: object
+      properties:
+        connectionId:
+          type: string
+        status:
+          type: string
+        firstQuestion:
+          type: string
+        costEstimate:
+          type: object
+          properties:
+            maxTurns:
+              type: integer
+            estimatedAiEvents:
+              type: integer
+            estimatedTokens:
+              type: integer
+            note:
+              type: string
+          required: [maxTurns, estimatedAiEvents, estimatedTokens, note]
+      required: [connectionId, status]
+
+    ConnectionDecisionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        status:
+          type: string
+        handoffMode:
+          type: ["string", "null"]
+      required: [success, status]
+
+    PendingConnection:
+      type: object
+      properties:
+        connectionId:
+          type: string
+        status:
+          type: string
+        opportunityType:
+          type: string
+        receiverBusinessName:
+          type: string
+        receiverSector:
+          type: string
+        qualificationSummary:
+          type: ["string", "null"]
+        agentRecommendation:
+          type: ["string", "null"]
+        matchStrength:
+          type: integer
+        qualificationTranscript:
+          type: array
+          items:
+            type: object
+            properties:
+              turn:
+                type: integer
+              question:
+                type: string
+              response:
+                type: ["string", "null"]
+        createdAt:
+          type: string
+      required: [connectionId, status, opportunityType, receiverBusinessName, receiverSector, matchStrength, qualificationTranscript, createdAt]
+
+    QualificationState:
+      type: object
+      properties:
+        connectionId:
+          type: string
+        status:
+          type: string
+        isReceiver:
+          type: boolean
+        turns:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              turn:
+                type: integer
+              question:
+                type: string
+              response:
+                type: ["string", "null"]
+              isComplete:
+                type: boolean
+              agentRecommendation:
+                type: ["string", "null"]
+        qualificationSummary:
+          type: ["string", "null"]
+        agentRecommendation:
+          type: ["string", "null"]
+      required: [connectionId, status, isReceiver, turns]
+
+    QualificationResult:
+      type: object
+      properties:
+        complete:
+          type: boolean
+        nextQuestion:
+          type: string
+        turnsRemaining:
+          type: integer
+        summary:
+          type: string
+        recommendation:
+          type: string
+        status:
+          type: string
+      required: [complete, status]
+
+    NetworkConnection:
+      type: object
+      properties:
+        connectionId:
+          type: string
+        otherBusinessName:
+          type: string
+        otherSector:
+          type: string
+        opportunityType:
+          type: string
+        handoffMode:
+          type: ["string", "null"]
+        status:
+          type: string
+        agentRecommendation:
+          type: ["string", "null"]
+        qualificationSummary:
+          type: ["string", "null"]
+        isRequester:
+          type: boolean
+        followups:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              promptText:
+                type: string
+              scheduledAt:
+                type: string
+              completedAt:
+                type: ["string", "null"]
+              isDraft:
+                type: boolean
+        qualificationTranscript:
+          type: array
+          items:
+            type: object
+            properties:
+              turn:
+                type: integer
+              question:
+                type: ["string", "null"]
+              response:
+                type: ["string", "null"]
+              isComplete:
+                type: boolean
+        connectedAt:
+          type: string
+      required: [connectionId, otherBusinessName, otherSector, opportunityType, status, isRequester, followups, qualificationTranscript, connectedAt]
+
+    IncomingQualification:
+      type: object
+      properties:
+        connectionId:
+          type: string
+        opportunityType:
+          type: string
+        requesterBusinessName:
+          type: string
+        requesterSector:
+          type: string
+        totalTurns:
+          type: integer
+        completedTurns:
+          type: integer
+        currentQuestion:
+          type: ["string", "null"]
+        currentTurnId:
+          type: ["string", "null"]
+      required: [connectionId, opportunityType, requesterBusinessName, requesterSector, totalTurns, completedTurns]

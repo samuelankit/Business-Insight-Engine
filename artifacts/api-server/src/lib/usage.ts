@@ -39,6 +39,10 @@ export const EVENT_COSTS_PENCE: Record<string, number> = {
   agent_run: 8,
   realtime_call: 15,
   strategy_generate: 5,
+  network_match: 5,
+  network_qualification_start: 5,
+  network_qualification_complete: 5,
+  network_connection_accept: 5,
 };
 
 export const DEFAULT_COST_PENCE = 5;
@@ -46,6 +50,21 @@ export const DEFAULT_COST_PENCE = 5;
 export function getEventCost(eventType: string): number {
   return EVENT_COSTS_PENCE[eventType] ?? DEFAULT_COST_PENCE;
 }
+
+const METERED_EVENTS = [
+  "orchestrate",
+  "transcribe",
+  "agent_run",
+  "realtime_call",
+  "strategy_generate",
+  "network_match",
+  "network_qualification_start",
+  "network_qualification_complete",
+  "network_connection_accept",
+  "network_intro_sent",
+  "network_intro_draft",
+  "network_followup_trigger",
+];
 
 export async function recordUsage(
   userId: string,

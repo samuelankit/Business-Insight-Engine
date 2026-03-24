@@ -1,9 +1,10 @@
 import { createHash, randomInt } from "crypto";
 import { db } from "@workspace/db";
-import { emailOtpsTable, usersTable } from "@workspace/db/schema";
+import { emailOtpsTable, usersTable, toolConnectionsTable } from "@workspace/db/schema";
 import { eq, and, gt, isNull } from "drizzle-orm";
-import { generateToken } from "./crypto.js";
+import { generateToken, decrypt } from "./crypto.js";
 import { logger } from "./logger.js";
+import nodemailer from "nodemailer";
 
 const MAX_OTP_ATTEMPTS = 5;
 const OTP_COOLDOWN_MS = 60_000;
@@ -143,4 +144,93 @@ export async function linkEmailToUser(userId: string, email: string): Promise<vo
       updatedAt: new Date(),
     })
     .where(eq(usersTable.id, userId));
+}
+
+interface NetworkingEmailResult {
+  sent: boolean;
+  method: "gmail_oauth" | "push_notification_only";
+  reason?: string;
+}
+
+export async function sendNetworkingIntroEmail(
+  senderUserId: string,
+  senderDisplayName: string,
+  receiverEmail: string | null | undefined,
+  subject: string,
+  body: string,
+): Promise<NetworkingEmailResult> {
+  const [gmailConn] = await db
+    .select()
+    .from(toolConnectionsTable)
+    .where(
+      and(
+        eq(toolConnectionsTable.userId, senderUserId),
+        eq(toolConnectionsTable.toolName, "gmail"),
+        eq(toolConnectionsTable.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (!gmailConn) {
+    logger.info({ senderUserId }, "No Gmail connection found; email delivery skipped");
+    return { sent: false, method: "push_notification_only", reason: "No Gmail tool connected" };
+  }
+
+  if (!receiverEmail) {
+    logger.info({ senderUserId }, "Receiver email unknown; email delivery skipped");
+    return { sent: false, method: "push_notification_only", reason: "Receiver email not available" };
+  }
+
+  try {
+    const credentialsJson = decrypt(gmailConn.encryptedCredentials, gmailConn.encryptedDek);
+    const credentials = JSON.parse(credentialsJson) as {
+      access_token: string;
+      refresh_token?: string;
+      client_id?: string;
+      client_secret?: string;
+      email?: string;
+    };
+
+    const meta = (gmailConn.metadata ?? {}) as Record<string, unknown>;
+    const senderEmail =
+      credentials.email ??
+      (typeof meta["email"] === "string" ? meta["email"] : null);
+
+    if (!senderEmail) {
+      return {
+        sent: false,
+        method: "push_notification_only",
+        reason: "Gmail sender email address not found in stored credentials",
+      };
+    }
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        type: "OAuth2",
+        user: senderEmail,
+        accessToken: credentials.access_token,
+        refreshToken: credentials.refresh_token,
+        clientId: credentials.client_id,
+        clientSecret: credentials.client_secret,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"${senderDisplayName} via GoRigo" <${senderEmail}>`,
+      to: receiverEmail,
+      subject,
+      text: body,
+    });
+
+    logger.info({ senderUserId, senderEmail, receiverEmail }, "Networking intro email sent via Gmail OAuth");
+    return { sent: true, method: "gmail_oauth" };
+  } catch (err) {
+    logger.warn({ err, senderUserId }, "Gmail OAuth send failed; falling back to push notification");
+    return {
+      sent: false,
+      method: "push_notification_only",
+      reason: `Gmail send failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }

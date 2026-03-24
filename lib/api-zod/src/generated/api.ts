@@ -1310,3 +1310,299 @@ export const GetAdminHealthResponse = zod.object({
   poolActive: zod.number(),
   poolIdle: zod.number(),
 });
+
+/**
+ * @summary Get network opt-in status for current business
+ */
+export const GetNetworkStatusQueryParams = zod.object({
+  businessId: zod.coerce.string(),
+});
+
+export const GetNetworkStatusResponse = zod.object({
+  isPaid: zod.boolean(),
+  isOptedIn: zod.boolean(),
+  hasGdprConsent: zod.boolean(),
+  hasCriteria: zod.boolean(),
+});
+
+/**
+ * @summary Opt in to network with GDPR consent and criteria
+ */
+export const NetworkOptInBody = zod.object({
+  businessId: zod.string(),
+  opportunityTypes: zod
+    .array(
+      zod.enum([
+        "Partnership",
+        "Client",
+        "Talent",
+        "Supplier",
+        "Collaboration",
+      ]),
+    )
+    .optional(),
+  sectorPreferences: zod.array(zod.string()).optional(),
+  dealBreakers: zod.string().nullish(),
+  mustHaves: zod.string().nullish(),
+});
+
+export const NetworkOptInResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().nullish(),
+});
+
+/**
+ * @summary Get Rigo-curated business matches
+ */
+export const GetNetworkMatchesQueryParams = zod.object({
+  businessId: zod.coerce.string(),
+});
+
+export const GetNetworkMatchesResponseItem = zod.object({
+  id: zod.string(),
+  matchedBusinessId: zod.string(),
+  businessName: zod.string(),
+  sector: zod.string(),
+  matchReason: zod.string().nullish(),
+  matchStrength: zod.number(),
+  opportunityType: zod.string(),
+});
+export const GetNetworkMatchesResponse = zod.array(
+  GetNetworkMatchesResponseItem,
+);
+
+/**
+ * @summary Send a connection request (triggers qualification)
+ */
+export const SendConnectionRequestBody = zod.object({
+  businessId: zod.string(),
+  targetBusinessId: zod.string(),
+  opportunityType: zod.enum([
+    "Partnership",
+    "Client",
+    "Talent",
+    "Supplier",
+    "Collaboration",
+  ]),
+  matchId: zod.string().optional(),
+});
+
+/**
+ * @summary Get connections awaiting user's decision
+ */
+export const GetPendingDecisionsQueryParams = zod.object({
+  businessId: zod.coerce.string(),
+});
+
+export const GetPendingDecisionsResponseItem = zod.object({
+  connectionId: zod.string(),
+  status: zod.string(),
+  opportunityType: zod.string(),
+  receiverBusinessName: zod.string(),
+  receiverSector: zod.string(),
+  qualificationSummary: zod.string().nullish(),
+  agentRecommendation: zod.string().nullish(),
+  matchStrength: zod.number(),
+  qualificationTranscript: zod.array(
+    zod.object({
+      turn: zod.number().optional(),
+      question: zod.string().optional(),
+      response: zod.string().nullish(),
+    }),
+  ),
+  createdAt: zod.string(),
+});
+export const GetPendingDecisionsResponse = zod.array(
+  GetPendingDecisionsResponseItem,
+);
+
+/**
+ * @summary Get incoming qualification requests for B-side (receiver)
+ */
+export const GetIncomingQualificationsQueryParams = zod.object({
+  businessId: zod.coerce.string(),
+});
+
+export const GetIncomingQualificationsResponseItem = zod.object({
+  connectionId: zod.string(),
+  opportunityType: zod.string(),
+  requesterBusinessName: zod.string(),
+  requesterSector: zod.string(),
+  totalTurns: zod.number(),
+  completedTurns: zod.number(),
+  currentQuestion: zod.string().nullish(),
+  currentTurnId: zod.string().nullish(),
+});
+export const GetIncomingQualificationsResponse = zod.array(
+  GetIncomingQualificationsResponseItem,
+);
+
+/**
+ * @summary Get qualification dialogue for a connection
+ */
+export const GetQualificationParams = zod.object({
+  connectionId: zod.coerce.string(),
+});
+
+export const GetQualificationResponse = zod.object({
+  connectionId: zod.string(),
+  status: zod.string(),
+  isReceiver: zod.boolean(),
+  turns: zod.array(
+    zod.object({
+      id: zod.string().optional(),
+      turn: zod.number().optional(),
+      question: zod.string().optional(),
+      response: zod.string().nullish(),
+      isComplete: zod.boolean().optional(),
+      agentRecommendation: zod.string().nullish(),
+    }),
+  ),
+  qualificationSummary: zod.string().nullish(),
+  agentRecommendation: zod.string().nullish(),
+});
+
+/**
+ * @summary Submit B's response to qualification question
+ */
+export const SubmitQualificationResponseParams = zod.object({
+  connectionId: zod.coerce.string(),
+});
+
+export const SubmitQualificationResponseBody = zod.object({
+  response: zod.string(),
+});
+
+export const SubmitQualificationResponseResponse = zod.object({
+  complete: zod.boolean(),
+  nextQuestion: zod.string().optional(),
+  turnsRemaining: zod.number().optional(),
+  summary: zod.string().optional(),
+  recommendation: zod.string().optional(),
+  status: zod.string(),
+});
+
+/**
+ * @summary Accept or decline a connection (A only)
+ */
+export const SubmitConnectionDecisionParams = zod.object({
+  connectionId: zod.coerce.string(),
+});
+
+export const SubmitConnectionDecisionBody = zod.object({
+  decision: zod.enum(["accept", "decline"]),
+  handoffMode: zod.enum(["rigo", "direct"]).optional(),
+});
+
+export const SubmitConnectionDecisionResponse = zod.object({
+  success: zod.boolean(),
+  status: zod.string(),
+  handoffMode: zod.string().nullish(),
+});
+
+/**
+ * @summary Rigo drafts an intro message for a connection
+ */
+export const DraftIntroMessageParams = zod.object({
+  connectionId: zod.coerce.string(),
+});
+
+export const DraftIntroMessageResponse = zod.object({
+  draft: zod.string(),
+});
+
+/**
+ * @summary Human approves Rigo-drafted intro and marks it sent (Rigo mode)
+ */
+export const ApproveSendIntroParams = zod.object({
+  connectionId: zod.coerce.string(),
+});
+
+export const ApproveSendIntroResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string(),
+  draft: zod.string().nullish(),
+  sentTo: zod.string(),
+  aiDisclosure: zod.string(),
+});
+
+/**
+ * @summary Get all accepted connections
+ */
+export const GetMyNetworkQueryParams = zod.object({
+  businessId: zod.coerce.string(),
+});
+
+export const GetMyNetworkResponseItem = zod.object({
+  connectionId: zod.string(),
+  otherBusinessName: zod.string(),
+  otherSector: zod.string(),
+  opportunityType: zod.string(),
+  handoffMode: zod.string().nullish(),
+  status: zod.string(),
+  agentRecommendation: zod.string().nullish(),
+  qualificationSummary: zod.string().nullish(),
+  isRequester: zod.boolean(),
+  followups: zod.array(
+    zod.object({
+      id: zod.string().optional(),
+      promptText: zod.string().optional(),
+      scheduledAt: zod.string().optional(),
+      completedAt: zod.string().nullish(),
+      isDraft: zod.boolean().optional(),
+    }),
+  ),
+  qualificationTranscript: zod.array(
+    zod.object({
+      turn: zod.number().optional(),
+      question: zod.string().nullish(),
+      response: zod.string().nullish(),
+      isComplete: zod.boolean().optional(),
+    }),
+  ),
+  connectedAt: zod.string(),
+});
+export const GetMyNetworkResponse = zod.array(GetMyNetworkResponseItem);
+
+/**
+ * @summary Get all followups for the user
+ */
+export const GetNetworkFollowupsQueryParams = zod.object({
+  businessId: zod.coerce.string(),
+});
+
+export const GetNetworkFollowupsResponseItem = zod.object({
+  id: zod.string(),
+  connectionId: zod.string(),
+  promptText: zod.string(),
+  scheduledAt: zod.string(),
+  completedAt: zod.string().nullish(),
+  isDraft: zod.boolean(),
+  hasDraftContent: zod.boolean(),
+});
+export const GetNetworkFollowupsResponse = zod.array(
+  GetNetworkFollowupsResponseItem,
+);
+
+/**
+ * @summary Process due followups and send outreach to counterparts
+ */
+export const ProcessNetworkFollowupsBody = zod.object({
+  businessId: zod.string(),
+});
+
+export const ProcessNetworkFollowupsResponse = zod.object({
+  processed: zod.number(),
+  total: zod.number(),
+});
+
+/**
+ * @summary Get summary for Dashboard Rigo awareness
+ */
+export const GetNetworkSummaryQueryParams = zod.object({
+  businessId: zod.coerce.string(),
+});
+
+export const GetNetworkSummaryResponse = zod.object({
+  summary: zod.string().nullish(),
+});

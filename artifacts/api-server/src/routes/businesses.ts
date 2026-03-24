@@ -4,8 +4,9 @@ import { db } from "@workspace/db";
 import {
   businessesTable,
   teamMembersTable,
+  networkMatchesTable,
 } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateToken } from "../lib/crypto.js";
 
@@ -128,6 +129,15 @@ router.put("/:id", async (req, res, next) => {
       .update(businessesTable)
       .set({ ...parsed.data, updatedAt: new Date() })
       .where(eq(businessesTable.id, req.params.id!));
+
+    await db
+      .delete(networkMatchesTable)
+      .where(
+        or(
+          eq(networkMatchesTable.businessId, req.params.id!),
+          eq(networkMatchesTable.matchedBusinessId, req.params.id!),
+        ),
+      );
 
     const [updated] = await db
       .select()
