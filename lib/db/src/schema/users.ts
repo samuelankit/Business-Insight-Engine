@@ -71,10 +71,58 @@ export const voicePreferencesTable = pgTable("voice_preferences", {
     .notNull()
     .unique()
     .references(() => usersTable.id, { onDelete: "cascade" }),
-  provider: text("provider").notNull().default("google"),
+  provider: text("provider").notNull().default("openai"),
   voiceName: text("voice_name"),
   speechRate: text("speech_rate"),
+  inputLocale: text("input_locale").notNull().default("en-GB"),
+  outputLocale: text("output_locale").notNull().default("en-GB"),
+  voicePinHash: text("voice_pin_hash"),
+  voiceActivated: boolean("voice_activated").notNull().default(false),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export type VoicePreference = typeof voicePreferencesTable.$inferSelect;
+
+export const voiceCallsTable = pgTable(
+  "voice_calls",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    businessId: text("business_id").notNull(),
+    agentId: text("agent_id"),
+    agentName: text("agent_name"),
+    direction: text("direction").notNull().default("outbound"),
+    durationSeconds: text("duration_seconds"),
+    transcriptSummary: text("transcript_summary"),
+    transcript: text("transcript"),
+    creditsUsed: text("credits_used").notNull().default("0"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("voice_calls_user_idx").on(t.userId, t.createdAt),
+    index("voice_calls_business_idx").on(t.businessId),
+  ],
+);
+
+export type VoiceCall = typeof voiceCallsTable.$inferSelect;
+
+export const voiceSessionsTable = pgTable(
+  "voice_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    sessionToken: text("session_token").notNull().unique(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("voice_sessions_user_idx").on(t.userId),
+    index("voice_sessions_token_idx").on(t.sessionToken),
+  ],
+);
+
+export type VoiceSession = typeof voiceSessionsTable.$inferSelect;

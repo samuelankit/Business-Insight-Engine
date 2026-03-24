@@ -43,6 +43,10 @@ export const EVENT_COSTS_PENCE: Record<string, number> = {
   network_qualification_start: 5,
   network_qualification_complete: 5,
   network_connection_accept: 5,
+  voice_talk: 8,
+  voice_tts: 3,
+  voice_transcribe: 3,
+  voice_number_purchase: 500,
 };
 
 export const DEFAULT_COST_PENCE = 5;

@@ -45,6 +45,7 @@ router.use("/referrals", referralsRouter);
 router.use("/reports", reportsRouter);
 router.use("/knowledge", knowledgeRouter);
 router.use("/sessions", sessionsRouter);
+router.use("/voice", voiceRouter);
 router.use("/tts", voiceRouter);
 router.use("/voice-preferences", voiceRouter);
 router.use("/transcribe", voiceRouter);

@@ -37,19 +37,31 @@ export const insertBusinessSchema = createInsertSchema(businessesTable);
 export type InsertBusiness = z.infer<typeof insertBusinessSchema>;
 export type Business = typeof businessesTable.$inferSelect;
 
-export const telnyxConfigsTable = pgTable("telnyx_configs", {
-  id: text("id").primaryKey(),
-  businessId: text("business_id")
-    .notNull()
-    .unique()
-    .references(() => businessesTable.id, { onDelete: "cascade" }),
-  encryptedApiKey: text("encrypted_api_key"),
-  phoneNumber: text("phone_number"),
-  sipUsername: text("sip_username"),
-  disclosureMessage: text("disclosure_message"),
-  consentAt: timestamp("consent_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const telnyxConfigsTable = pgTable(
+  "telnyx_configs",
+  {
+    id: text("id").primaryKey(),
+    businessId: text("business_id")
+      .notNull()
+      .references(() => businessesTable.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    agentId: text("agent_id"),
+    encryptedApiKey: text("encrypted_api_key"),
+    phoneNumber: text("phone_number"),
+    sipUsername: text("sip_username"),
+    disclosureMessage: text("disclosure_message"),
+    consentAt: timestamp("consent_at"),
+    isActive: boolean("is_active").notNull().default(true),
+    monthlyFeePence: text("monthly_fee_pence").notNull().default("299"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("telnyx_configs_business_idx").on(t.businessId),
+    index("telnyx_configs_user_idx").on(t.userId),
+  ],
+);
 
 export type TelnyxConfig = typeof telnyxConfigsTable.$inferSelect;
