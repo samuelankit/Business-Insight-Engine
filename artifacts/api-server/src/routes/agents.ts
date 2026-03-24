@@ -6,9 +6,15 @@ import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateToken } from "../lib/crypto.js";
 import { checkWalletAndDebit, getEventCost, recordUsage } from "../lib/usage.js";
+import { openai as replitOpenAI } from "@workspace/integrations-openai-ai-server";
+import multer from "multer";
+import mammoth from "mammoth";
+import { extractPDFText } from "../lib/pdfExtract.js";
 
 const router = Router();
 router.use(requireAuth);
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const TEMPLATES = [
   {
@@ -53,8 +59,296 @@ const TEMPLATES = [
   },
 ];
 
+const JD_TEMPLATES = [
+  {
+    id: "marketing-manager",
+    roleTitle: "Marketing Manager",
+    description: "Drives brand awareness and demand generation",
+    jobDescription: `Role: Marketing Manager
+
+Responsibilities:
+- Develop and execute integrated marketing campaigns across digital and offline channels
+- Manage social media presence, content calendar, and brand voice
+- Analyse campaign performance metrics and optimise ROI
+- Coordinate with sales team to align marketing with revenue goals
+- Oversee email marketing, SEO, and paid advertising strategies
+- Manage agency and freelancer relationships
+- Prepare monthly marketing reports for leadership
+
+Key Performance Indicators:
+- Lead generation volume and quality
+- Cost per acquisition (CPA)
+- Brand reach and engagement rates
+- Campaign ROI
+
+Skills Required:
+- 3+ years in digital marketing
+- Proficiency in CRM, Google Analytics, and ad platforms
+- Strong written and verbal communication
+- Data-driven mindset with creative problem-solving ability`,
+  },
+  {
+    id: "operations-manager",
+    roleTitle: "Operations Manager",
+    description: "Ensures smooth day-to-day business operations",
+    jobDescription: `Role: Operations Manager
+
+Responsibilities:
+- Oversee daily operational workflows and ensure process efficiency
+- Manage vendor relationships, procurement, and supply chain logistics
+- Identify bottlenecks and implement process improvements
+- Coordinate cross-functional teams to meet project deadlines
+- Monitor KPIs and prepare operational reports
+- Ensure compliance with company policies and regulatory requirements
+- Handle escalations and resolve operational issues promptly
+
+Key Performance Indicators:
+- Operational cost efficiency
+- Process cycle times
+- Team productivity metrics
+- Compliance adherence rate
+
+Skills Required:
+- 3+ years in operations or project management
+- Strong analytical and problem-solving skills
+- Experience with project management tools (Notion, Trello, Asana)
+- Excellent communication and leadership abilities`,
+  },
+  {
+    id: "financial-analyst",
+    roleTitle: "Financial Analyst",
+    description: "Tracks finances and provides strategic financial insights",
+    jobDescription: `Role: Financial Analyst
+
+Responsibilities:
+- Monitor revenue, expenses, and cash flow on a daily/weekly basis
+- Prepare financial statements, forecasts, and budget reports
+- Analyse financial data to identify trends and opportunities
+- Manage invoicing, accounts payable, and accounts receivable
+- Support tax compliance and liaise with external accountants
+- Provide financial modelling for business decisions
+- Track and report on departmental budgets
+
+Key Performance Indicators:
+- Forecast accuracy
+- Days Sales Outstanding (DSO)
+- Budget variance
+- Financial report turnaround time
+
+Skills Required:
+- Degree in Finance, Accounting, or related field
+- Proficiency in accounting software (Xero, QuickBooks)
+- Advanced Excel / Google Sheets skills
+- Attention to detail and strong numerical ability`,
+  },
+  {
+    id: "customer-success-manager",
+    roleTitle: "Customer Success Manager",
+    description: "Ensures customers achieve their desired outcomes",
+    jobDescription: `Role: Customer Success Manager
+
+Responsibilities:
+- Onboard new customers and guide them through product adoption
+- Build long-term relationships with key accounts
+- Monitor customer health scores and proactively address churn risk
+- Conduct regular check-in calls and business reviews
+- Gather product feedback and relay to the product team
+- Manage renewals and identify upsell opportunities
+- Resolve escalated customer issues swiftly
+
+Key Performance Indicators:
+- Net Promoter Score (NPS)
+- Customer retention rate
+- Upsell/expansion revenue
+- Time to first value (TTFV)
+
+Skills Required:
+- 2+ years in customer success or account management
+- Excellent interpersonal and communication skills
+- Experience with CRM tools (HubSpot, Salesforce)
+- Empathetic problem-solving approach`,
+  },
+  {
+    id: "sales-executive",
+    roleTitle: "Sales Executive",
+    description: "Drives revenue growth through proactive outreach and deal closing",
+    jobDescription: `Role: Sales Executive
+
+Responsibilities:
+- Prospect and qualify new business opportunities
+- Conduct discovery calls, demos, and follow-up activities
+- Manage pipeline using CRM software
+- Negotiate contracts and close deals to meet revenue targets
+- Collaborate with marketing for lead generation campaigns
+- Build relationships with decision-makers at target accounts
+- Provide accurate sales forecasts to management
+
+Key Performance Indicators:
+- Monthly/quarterly revenue attainment
+- Pipeline coverage ratio
+- Win rate
+- Average deal size
+
+Skills Required:
+- 2+ years in B2B sales
+- Proven track record of hitting quotas
+- Strong negotiation and presentation skills
+- Proficiency with CRM tools`,
+  },
+  {
+    id: "hr-manager",
+    roleTitle: "HR Manager",
+    description: "Manages talent acquisition, development, and employee relations",
+    jobDescription: `Role: HR Manager
+
+Responsibilities:
+- Lead recruitment processes from job posting to offer acceptance
+- Manage employee onboarding, development, and performance review cycles
+- Develop and implement HR policies and procedures
+- Oversee payroll coordination and benefits administration
+- Handle employee relations, conflict resolution, and disciplinary matters
+- Ensure compliance with employment legislation
+- Foster a positive workplace culture and employee engagement
+
+Key Performance Indicators:
+- Time to hire
+- Employee retention rate
+- Employee satisfaction scores
+- Training completion rate
+
+Skills Required:
+- Degree in Human Resources or related field
+- CIPD qualification preferred
+- Knowledge of employment law
+- Strong interpersonal and conflict resolution skills`,
+  },
+];
+
+function sendSSE(res: import("express").Response, event: string, data: unknown) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
 router.get("/templates", (_req, res) => {
   res.json(TEMPLATES);
+});
+
+router.get("/jd-templates", (_req, res) => {
+  res.json(JD_TEMPLATES);
+});
+
+router.post("/generate-jd", async (req, res, next) => {
+  try {
+    const { roleTitle, context } = req.body;
+    if (!roleTitle) {
+      res.status(400).json({ error: "roleTitle is required" });
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    const systemPrompt = `You are an expert HR consultant and business writer. Generate a comprehensive, professional Job Description (JD) for the role provided. Structure it with clear sections: Role Overview, Key Responsibilities (bullet points), Key Performance Indicators, and Skills Required. Be specific, actionable, and professional. Write in second/third person. Do not use markdown headers with #, use plain text headers instead.`;
+
+    const userMessage = `Write a full Job Description for the role: "${roleTitle}"${context ? `\n\nAdditional context: ${context}` : ""}`;
+
+    const stream = await replitOpenAI.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+      stream: true,
+    });
+
+    let fullText = "";
+    for await (const chunk of stream) {
+      const token = chunk.choices[0]?.delta?.content ?? "";
+      if (token) {
+        fullText += token;
+        sendSSE(res, "token", { token });
+      }
+    }
+
+    sendSSE(res, "done", { text: fullText });
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/parse-jd", upload.single("file"), async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: "file is required" });
+      return;
+    }
+
+    const allowedTypes = [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword",
+      "text/plain",
+    ];
+    if (!allowedTypes.includes(file.mimetype)) {
+      res.status(400).json({ error: "Only PDF, DOCX, and TXT files are supported" });
+      return;
+    }
+
+    let rawText = "";
+    if (file.mimetype === "text/plain") {
+      rawText = file.buffer.toString("utf-8");
+    } else if (file.mimetype === "application/pdf") {
+      try {
+        rawText = await extractPDFText(file.buffer);
+      } catch (parseErr) {
+        res.status(422).json({ error: "Could not extract text from this PDF. Please ensure it contains selectable (non-scanned) text, or use a TXT or DOCX file instead." });
+        return;
+      }
+      if (!rawText.trim()) {
+        res.status(422).json({ error: "No readable text found in this PDF. Please ensure it contains selectable text (not a scanned image), or use a TXT or DOCX file instead." });
+        return;
+      }
+    } else if (
+      file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      file.mimetype === "application/msword"
+    ) {
+      try {
+        const docResult = await mammoth.extractRawText({ buffer: file.buffer });
+        rawText = docResult.value;
+      } catch (parseErr) {
+        res.status(422).json({ error: "Could not extract text from DOCX file. Please check the file is a valid Word document." });
+        return;
+      }
+    }
+
+    if (!rawText.trim()) {
+      res.status(422).json({ error: "No readable text could be extracted from the uploaded file. Please ensure the document contains selectable text." });
+      return;
+    }
+
+    const completion = await replitOpenAI.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert at extracting and summarising Job Descriptions from documents. Given extracted document text, clean it up and format it as a professional Job Description with clear sections: Role Overview, Key Responsibilities, Key Performance Indicators, and Skills Required. Preserve all original content but improve formatting and structure. Do not invent information that is not present in the source text.",
+        },
+        {
+          role: "user",
+          content: `Extract and format the Job Description from this document content:\n\nFilename: ${file.originalname}\n\nContent:\n${rawText.slice(0, 8000)}`,
+        },
+      ],
+    });
+
+    const jobDescription = completion.choices[0]?.message?.content ?? "";
+    res.json({ jobDescription });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get("/approvals/pending", async (req, res, next) => {
@@ -140,10 +434,20 @@ router.get("/", async (req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   try {
-    const { businessId, name, description, systemPrompt, toolAccess = [] } = req.body;
+    const { businessId, name, description, systemPrompt, jobDescription, toolAccess = [] } = req.body;
 
-    if (!businessId || !name || !systemPrompt) {
-      res.status(400).json({ error: "businessId, name, and systemPrompt are required" });
+    if (!businessId || !name) {
+      res.status(400).json({ error: "businessId and name are required" });
+      return;
+    }
+
+    let resolvedSystemPrompt = systemPrompt;
+    if (!resolvedSystemPrompt && jobDescription) {
+      resolvedSystemPrompt = `You are an AI agent for this role. Here is your Job Description:\n\n${jobDescription}\n\nAct according to your role, responsibilities, and KPIs as described above.`;
+    }
+
+    if (!resolvedSystemPrompt) {
+      res.status(400).json({ error: "Either systemPrompt or jobDescription is required" });
       return;
     }
 
@@ -154,7 +458,8 @@ router.post("/", async (req, res, next) => {
       businessId,
       name,
       description,
-      systemPrompt,
+      systemPrompt: resolvedSystemPrompt,
+      jobDescription: jobDescription ?? null,
       toolAccess,
       type: "custom",
     });
@@ -183,7 +488,7 @@ router.patch("/:agentId", async (req, res, next) => {
       return;
     }
 
-    const allowed = ["name", "description", "systemPrompt", "isActive", "scheduleType", "scheduleTime", "scheduleDay", "scheduleInterval", "toolAccess"];
+    const allowed = ["name", "description", "systemPrompt", "jobDescription", "isActive", "scheduleType", "scheduleTime", "scheduleDay", "scheduleInterval", "toolAccess"];
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key === "systemPrompt" ? "systemPrompt" : key] = req.body[key];
@@ -301,6 +606,7 @@ function mapAgent(a: typeof agentsTable.$inferSelect) {
     isActive: a.isActive,
     isBuiltIn: a.isBuiltIn,
     businessId: a.businessId,
+    jobDescription: a.jobDescription ?? null,
     scheduleType: a.scheduleType,
     scheduleTime: a.scheduleTime,
     scheduleDay: a.scheduleDay,

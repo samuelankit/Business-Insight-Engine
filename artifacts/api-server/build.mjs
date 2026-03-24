@@ -94,6 +94,7 @@ async function buildAll() {
       "usb",
       "workerd",
       "wrangler",
+      "pdfjs-dist",
       "zeromq",
       "zeromq-prebuilt",
       "playwright",

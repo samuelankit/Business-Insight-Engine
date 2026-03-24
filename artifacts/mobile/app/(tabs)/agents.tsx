@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -7,8 +7,6 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
-  Modal,
-  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -52,9 +50,6 @@ export default function AgentsScreen() {
   const router = useRouter();
   const { token, activeBusinessId } = useApp();
   const queryClient = useQueryClient();
-  const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newPrompt, setNewPrompt] = useState("");
 
   const apiBase = `https://${process.env["EXPO_PUBLIC_DOMAIN"]}/api`;
   const headers = { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" };
@@ -126,27 +121,6 @@ export default function AgentsScreen() {
     },
   });
 
-  const createAgent = useMutation({
-    mutationFn: async () => {
-      const resp = await fetch(`${apiBase}/agents`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          businessId: activeBusinessId,
-          name: newName,
-          systemPrompt: newPrompt,
-        }),
-      });
-      return resp.json();
-    },
-    onSuccess: () => {
-      setShowCreate(false);
-      setNewName("");
-      setNewPrompt("");
-      queryClient.invalidateQueries({ queryKey: ["agents"] });
-    },
-  });
-
   const approveAction = useMutation({
     mutationFn: async (actionId: string) => {
       const resp = await fetch(`${apiBase}/agents/approvals/${actionId}/approve`, {
@@ -175,7 +149,7 @@ export default function AgentsScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>AI Agents</Text>
-        <TouchableOpacity style={styles.addBtn} onPress={() => setShowCreate(true)}>
+        <TouchableOpacity style={styles.addBtn} onPress={() => router.push("/create-agent")}>
           <Feather name="plus" size={18} color="#0A0A0A" />
         </TouchableOpacity>
       </View>
@@ -325,9 +299,7 @@ export default function AgentsScreen() {
               key={template.id}
               style={styles.templateCard}
               onPress={() => {
-                setNewName(template.name);
-                setNewPrompt(template.systemPrompt ?? "");
-                setShowCreate(true);
+                router.push(`/create-agent?templateName=${encodeURIComponent(template.name)}&templatePrompt=${encodeURIComponent(template.systemPrompt ?? "")}`);
               }}
               activeOpacity={0.7}
             >
@@ -344,50 +316,6 @@ export default function AgentsScreen() {
         </View>
       </ScrollView>
 
-      {/* Create Agent Modal */}
-      <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Create Agent</Text>
-            <TouchableOpacity onPress={() => setShowCreate(false)}>
-              <Feather name="x" size={22} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.modalContent}>
-            <Text style={styles.fieldLabel}>Agent Name</Text>
-            <TextInput
-              style={styles.textInput}
-              value={newName}
-              onChangeText={setNewName}
-              placeholder="e.g. Marketing Agent"
-              placeholderTextColor="#555"
-            />
-
-            <Text style={styles.fieldLabel}>System Prompt</Text>
-            <TextInput
-              style={[styles.textInput, styles.textInputTall]}
-              value={newPrompt}
-              onChangeText={setNewPrompt}
-              placeholder="Describe what this agent should do..."
-              placeholderTextColor="#555"
-              multiline
-            />
-          </ScrollView>
-
-          <View style={styles.modalFooter}>
-            <TouchableOpacity
-              style={[styles.createBtn, (!newName.trim() || !newPrompt.trim()) && styles.createBtnDisabled]}
-              onPress={() => createAgent.mutate()}
-              disabled={!newName.trim() || !newPrompt.trim() || createAgent.isPending}
-            >
-              <Text style={styles.createBtnText}>
-                {createAgent.isPending ? "Creating..." : "Create Agent"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }

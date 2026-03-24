@@ -24,6 +24,7 @@ export const agentsTable = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     systemPrompt: text("system_prompt").notNull(),
+    jobDescription: text("job_description"),
     isBuiltIn: boolean("is_built_in").notNull().default(false),
     isActive: boolean("is_active").notNull().default(true),
     toolAccess: jsonb("tool_access").$type<string[]>().notNull().default([]),
