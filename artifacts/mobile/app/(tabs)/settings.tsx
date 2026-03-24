@@ -42,6 +42,17 @@ export default function SettingsScreen() {
   const apiBase = `https://${process.env["EXPO_PUBLIC_DOMAIN"]}/api`;
   const headers = { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" };
 
+  const { data: toolsList = [] } = useQuery<any[]>({
+    queryKey: ["tools", userId],
+    queryFn: async () => {
+      const resp = await fetch(`${apiBase}/tools/available`, { headers });
+      return resp.ok ? resp.json() : [];
+    },
+    enabled: !!token,
+  });
+
+  const connectedToolsCount = toolsList.filter((t: any) => t.isConnected).length;
+
   const { data: keys = [], refetch: refetchKeys } = useQuery<any[]>({
     queryKey: ["api-keys", userId],
     queryFn: async () => {
@@ -428,6 +439,38 @@ export default function SettingsScreen() {
               <Text style={styles.addKeyText}>Add API Key</Text>
             </TouchableOpacity>
           </View>
+        </View>
+
+        {/* Tools & Integrations */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Integrations</Text>
+          <TouchableOpacity
+            style={styles.card}
+            onPress={() => router.push("/tools" as any)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.menuRow}>
+              <View style={styles.menuIcon}>
+                <Feather name="tool" size={16} color={GOLD} />
+              </View>
+              <View style={styles.menuInfo}>
+                <Text style={styles.menuLabel}>Tools & Integrations</Text>
+                <Text style={styles.menuSubtext}>
+                  {connectedToolsCount > 0
+                    ? `${connectedToolsCount} connected`
+                    : "Connect Gmail, Slack, Stripe and more"}
+                </Text>
+              </View>
+              {connectedToolsCount > 0 && (
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: "#22C55E18", borderRadius: 10, marginRight: 8 }}>
+                  <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#22C55E" }}>
+                    {connectedToolsCount}
+                  </Text>
+                </View>
+              )}
+              <Feather name="chevron-right" size={16} color="#555" />
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* Businesses */}

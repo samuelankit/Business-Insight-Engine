@@ -22,6 +22,8 @@ export const toolConnectionsTable = pgTable(
     status: text("status").notNull().default("active"),
     scopes: jsonb("scopes").$type<string[]>(),
     metadata: jsonb("metadata"),
+    refreshToken: text("refresh_token"),
+    tokenExpiresAt: timestamp("token_expires_at"),
     lastUsedAt: timestamp("last_used_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

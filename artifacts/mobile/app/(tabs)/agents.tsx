@@ -73,6 +73,17 @@ export default function AgentsScreen() {
     enabled: !!token,
   });
 
+  const { data: connectedTools = [] } = useQuery<{ name: string; label: string }[]>({
+    queryKey: ["tools", "connected"],
+    queryFn: async () => {
+      const resp = await fetch(`${apiBase}/tools/available`, { headers });
+      if (!resp.ok) return [];
+      const all = await resp.json() as { name: string; label: string; isConnected: boolean }[];
+      return all.filter((t) => t.isConnected);
+    },
+    enabled: !!token,
+  });
+
   const { data: orgCharts = [] } = useQuery<OrgChart[]>({
     queryKey: ["org-charts", activeBusinessId],
     queryFn: async () => {
@@ -258,34 +269,45 @@ export default function AgentsScreen() {
           ) : (
             agents.map((agent) => (
               <View key={agent.id} style={styles.agentCard}>
-                <View style={styles.agentLeft}>
-                  <View style={styles.agentIconContainer}>
-                    <Feather name="cpu" size={20} color={GOLD} />
+                <View style={styles.agentCardTop}>
+                  <View style={styles.agentLeft}>
+                    <View style={styles.agentIconContainer}>
+                      <Feather name="cpu" size={20} color={GOLD} />
+                    </View>
+                    <View style={styles.agentInfo}>
+                      <Text style={styles.agentName}>{agent.name}</Text>
+                      {agent.lastRunAt && (
+                        <Text style={styles.agentMeta}>
+                          Last run: {new Date(agent.lastRunAt).toLocaleDateString()}
+                        </Text>
+                      )}
+                    </View>
                   </View>
-                  <View style={styles.agentInfo}>
-                    <Text style={styles.agentName}>{agent.name}</Text>
-                    {agent.lastRunAt && (
-                      <Text style={styles.agentMeta}>
-                        Last run: {new Date(agent.lastRunAt).toLocaleDateString()}
-                      </Text>
-                    )}
+                  <View style={styles.agentRight}>
+                    <Switch
+                      value={agent.isActive}
+                      onValueChange={(v) => toggleAgent.mutate({ id: agent.id, isActive: v })}
+                      trackColor={{ false: "#2A2A2A", true: GOLD + "66" }}
+                      thumbColor={agent.isActive ? GOLD : "#555"}
+                    />
+                    <TouchableOpacity
+                      style={styles.runBtn}
+                      onPress={() => runAgent.mutate(agent.id)}
+                      disabled={runAgent.isPending}
+                    >
+                      <Feather name="play" size={14} color={GOLD} />
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <View style={styles.agentRight}>
-                  <Switch
-                    value={agent.isActive}
-                    onValueChange={(v) => toggleAgent.mutate({ id: agent.id, isActive: v })}
-                    trackColor={{ false: "#2A2A2A", true: GOLD + "66" }}
-                    thumbColor={agent.isActive ? GOLD : "#555"}
-                  />
-                  <TouchableOpacity
-                    style={styles.runBtn}
-                    onPress={() => runAgent.mutate(agent.id)}
-                    disabled={runAgent.isPending}
-                  >
-                    <Feather name="play" size={14} color={GOLD} />
-                  </TouchableOpacity>
-                </View>
+                {connectedTools.length > 0 && (
+                  <View style={styles.toolChipsRow}>
+                    {connectedTools.map((tool) => (
+                      <View key={tool.name} style={styles.toolChip}>
+                        <Text style={styles.toolChipText}>{tool.label}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
               </View>
             ))
           )}
@@ -435,14 +457,38 @@ const styles = StyleSheet.create({
   rejectBtn: { borderColor: "#EF444444", backgroundColor: "#1A1A1A" },
   approveBtn: { borderColor: "#22C55E44", backgroundColor: "#1A1A1A" },
   agentCard: {
-    flexDirection: "row",
-    alignItems: "center",
     backgroundColor: "#1A1A1A",
     borderColor: "#2A2A2A",
     borderWidth: 1,
     borderRadius: 12,
     padding: 16,
     marginBottom: 10,
+  },
+  agentCardTop: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  toolChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#2A2A2A",
+  },
+  toolChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: GOLD + "18",
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: GOLD + "33",
+  },
+  toolChipText: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    color: GOLD,
   },
   agentLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
   agentIconContainer: {

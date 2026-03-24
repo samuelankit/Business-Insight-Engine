@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { refreshExpiredTokens } from "./routes/tools.js";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +23,9 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  refreshExpiredTokens().catch((e) => logger.warn({ err: e }, "Initial token refresh failed"));
+  setInterval(() => {
+    refreshExpiredTokens().catch((e) => logger.warn({ err: e }, "Token refresh job failed"));
+  }, 24 * 60 * 60 * 1000);
 });
