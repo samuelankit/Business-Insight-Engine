@@ -606,6 +606,13 @@ importers:
         version: 3.25.76
 
   artifacts/portal:
+    dependencies:
+      '@stripe/react-stripe-js':
+        specifier: ^5.6.1
+        version: 5.6.1(@stripe/stripe-js@8.11.0)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      '@stripe/stripe-js':
+        specifier: ^8.11.0
+        version: 8.11.0
     devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0

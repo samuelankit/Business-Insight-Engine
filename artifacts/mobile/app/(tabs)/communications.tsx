@@ -13,6 +13,7 @@ import {
   Pressable,
   ActivityIndicator,
   Platform,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -105,7 +106,7 @@ const VOICE_INTRO_SHOWN_KEY = "@gorigo/voice_intro_shown";
 
 export default function CommunicationsScreen() {
   const router = useRouter();
-  const { token, activeBusinessId } = useApp();
+  const { token, activeBusinessId, userId } = useApp();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
 
@@ -1244,11 +1245,13 @@ export default function CommunicationsScreen() {
                   <TouchableOpacity
                     style={styles.topUpBtn}
                     onPress={() => {
-                      Alert.alert(
-                        "Top Up Voice Credits",
-                        "Visit the Wallet section in Settings to add voice credits and continue using Rigo.",
-                        [{ text: "OK" }],
-                      );
+                      const domain = process.env["EXPO_PUBLIC_DOMAIN"];
+                      const portalBase = domain ? `https://${domain}/portal` : process.env["EXPO_PUBLIC_PORTAL_URL"] ?? "";
+                      if (userId && portalBase) {
+                        Linking.openURL(`${portalBase}/topup?userId=${encodeURIComponent(userId)}`).catch(() => {
+                          Alert.alert("Error", "Could not open the top-up page. Please try again.");
+                        });
+                      }
                     }}
                   >
                     <Feather name="plus-circle" size={12} color={GOLD} />

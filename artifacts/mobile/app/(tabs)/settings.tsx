@@ -10,6 +10,7 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -284,6 +285,17 @@ export default function SettingsScreen() {
   const balanceFormatted = walletData?.balanceFormatted ?? "£0.00";
   const isLowBalance = walletData?.lowBalance ?? (balancePence < 200);
 
+  const domain = process.env["EXPO_PUBLIC_DOMAIN"];
+  const portalBaseUrl = domain ? `https://${domain}/portal` : process.env["EXPO_PUBLIC_PORTAL_URL"] ?? "";
+
+  function openPortalTopUp() {
+    if (!userId || !portalBaseUrl) return;
+    const url = `${portalBaseUrl}/topup?userId=${encodeURIComponent(userId)}`;
+    Linking.openURL(url).catch(() => {
+      Alert.alert("Error", "Could not open the top-up page. Please try again.");
+    });
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -291,7 +303,7 @@ export default function SettingsScreen() {
         {walletData && (
           <TouchableOpacity
             style={[styles.balanceBadge, isLowBalance && styles.balanceBadgeLow]}
-            onPress={() => setShowTopUpModal(true)}
+            onPress={openPortalTopUp}
           >
             {isLowBalance && (
               <Feather name="alert-triangle" size={12} color="#F59E0B" style={{ marginRight: 4 }} />
@@ -369,10 +381,10 @@ export default function SettingsScreen() {
 
             <TouchableOpacity
               style={styles.topUpBtn}
-              onPress={() => setShowTopUpModal(true)}
+              onPress={openPortalTopUp}
             >
               <Feather name="plus-circle" size={16} color="#0A0A0A" />
-              <Text style={styles.topUpBtnText}>Top Up</Text>
+              <Text style={styles.topUpBtnText}>Top Up Credits</Text>
             </TouchableOpacity>
           </View>
 

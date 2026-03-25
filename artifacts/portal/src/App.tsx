@@ -6,6 +6,8 @@ import { useState, useEffect, createContext, useContext } from "react";
 import { getToken, clearToken } from "@/lib/api";
 import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
+import TopUpPage from "@/pages/TopUpPage";
+import TopUpSuccessPage from "@/pages/TopUpSuccessPage";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -29,18 +31,15 @@ export function useAuth() {
 function PortalRoutes() {
   const { authenticated, login } = useAuth();
 
-  if (authenticated) {
-    return (
-      <Switch>
-        <Route path="/" component={DashboardPage} />
-        <Route component={NotFound} />
-      </Switch>
-    );
-  }
-
   return (
     <Switch>
-      <Route path="/" component={() => <LoginPage onLogin={login} />} />
+      <Route path="/topup" component={TopUpPage} />
+      <Route path="/topup/success" component={TopUpSuccessPage} />
+      {authenticated ? (
+        <Route path="/" component={DashboardPage} />
+      ) : (
+        <Route path="/" component={() => <LoginPage onLogin={login} />} />
+      )}
       <Route component={NotFound} />
     </Switch>
   );

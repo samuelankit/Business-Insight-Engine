@@ -25,6 +25,7 @@ import analyticsRouter from "./analytics.js";
 import paymentsRouter from "./payments.js";
 import networkingRouter from "./networking.js";
 import agentOrgsRouter from "./agentOrgs.js";
+import walletRouter from "./wallet.js";
 
 const router: IRouter = Router();
 
@@ -58,5 +59,6 @@ router.use("/analytics", analyticsRouter);
 router.use("/payments", paymentsRouter);
 router.use("/networking", networkingRouter);
 router.use("/agent-orgs", agentOrgsRouter);
+router.use("/wallet", walletRouter);
 
 export default router;
