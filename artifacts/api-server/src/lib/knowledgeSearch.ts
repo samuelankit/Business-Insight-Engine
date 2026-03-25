@@ -1,21 +1,7 @@
 import { db } from "@workspace/db";
 import { knowledgeChunksTable, knowledgeDocumentsTable } from "@workspace/db/schema";
-import { eq, and, or, isNull } from "drizzle-orm";
+import { eq, and, or, isNull, sql } from "drizzle-orm";
 import { openai as replitOpenAI } from "@workspace/integrations-openai-ai-server";
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0;
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i]! * b[i]!;
-    normA += a[i]! * a[i]!;
-    normB += b[i]! * b[i]!;
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
-}
 
 async function getQueryEmbedding(query: string): Promise<number[] | null> {
   try {
@@ -38,6 +24,54 @@ export async function searchKnowledge(
   const queryEmbedding = await getQueryEmbedding(query);
   if (!queryEmbedding) return [];
 
+  const vectorLiteral = `[${queryEmbedding.join(",")}]`;
+
+  try {
+    const result = await db.execute(sql`
+      SELECT kc.content,
+             1 - (kc.embedding_vec <=> ${vectorLiteral}::vector) AS score
+      FROM knowledge_chunks kc
+      INNER JOIN knowledge_documents kd ON kc.document_id = kd.id
+      WHERE kc.business_id = ${businessId}
+        AND kd.status = 'ready'
+        AND kc.embedding_vec IS NOT NULL
+        AND ${agentId
+          ? sql`(kd.agent_id IS NULL OR kd.agent_id = ${agentId})`
+          : sql`kd.agent_id IS NULL`}
+      ORDER BY kc.embedding_vec <=> ${vectorLiteral}::vector
+      LIMIT ${topK}
+    `);
+
+    const rows = result as unknown as Array<{ content: string; score: string | number }>;
+    return rows.map((r) => ({
+      content: r.content,
+      score: Number(r.score),
+    }));
+  } catch {
+    return fallbackJsSearch(businessId, agentId, queryEmbedding, topK);
+  }
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    normA += a[i]! * a[i]!;
+    normB += b[i]! * b[i]!;
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+async function fallbackJsSearch(
+  businessId: string,
+  agentId: string | null,
+  queryEmbedding: number[],
+  topK: number,
+): Promise<Array<{ content: string; score: number }>> {
   const rows = await db
     .select({
       content: knowledgeChunksTable.content,
@@ -65,14 +99,12 @@ export async function searchKnowledge(
 
   for (const row of rows) {
     if (!row.embedding) continue;
-
     let embeddingVec: number[];
     try {
       embeddingVec = JSON.parse(row.embedding) as number[];
     } catch {
       continue;
     }
-
     const score = cosineSimilarity(queryEmbedding, embeddingVec);
     scored.push({ content: row.content, score });
   }

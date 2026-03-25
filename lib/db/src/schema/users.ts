@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, index, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -78,6 +78,8 @@ export const voicePreferencesTable = pgTable("voice_preferences", {
   outputLocale: text("output_locale").notNull().default("en-GB"),
   voicePinHash: text("voice_pin_hash"),
   voiceActivated: boolean("voice_activated").notNull().default(false),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

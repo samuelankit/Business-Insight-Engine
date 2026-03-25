@@ -13,6 +13,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateToken } from "../lib/crypto.js";
 import nodemailer from "nodemailer";
+import { logger } from "../lib/logger.js";
 
 async function verifyBusinessOwnership(userId: string, businessId: string) {
   const [biz] = await db
@@ -34,6 +35,71 @@ async function verifyCampaignOwnership(userId: string, campaignId: string) {
 }
 
 const router = Router();
+
+export async function handleUnsubscribe(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction): Promise<void> {
+  try {
+    const { token } = req.query as { token?: string };
+    if (!token) {
+      res.status(400).send("<html><body><p>Invalid unsubscribe link.</p></body></html>");
+      return;
+    }
+
+    const [msg] = await db
+      .select({
+        contactId: campaignMessagesTable.contactId,
+        campaignId: campaignMessagesTable.campaignId,
+      })
+      .from(campaignMessagesTable)
+      .where(eq(campaignMessagesTable.unsubscribeToken, token))
+      .limit(1);
+
+    if (!msg || !msg.contactId) {
+      res.status(404).send("<html><body><p>This unsubscribe link is invalid or has already been used.</p></body></html>");
+      return;
+    }
+
+    const [campaign] = await db
+      .select({ businessId: campaignsTable.businessId })
+      .from(campaignsTable)
+      .where(eq(campaignsTable.id, msg.campaignId))
+      .limit(1);
+
+    const businessId = campaign?.businessId;
+    let businessName = "this business";
+    if (businessId) {
+      const [biz] = await db
+        .select({ name: businessesTable.name })
+        .from(businessesTable)
+        .where(eq(businessesTable.id, businessId))
+        .limit(1);
+      if (biz) businessName = biz.name;
+    }
+
+    await db
+      .update(contactsTable)
+      .set({ consentGiven: false })
+      .where(eq(contactsTable.id, msg.contactId));
+
+    await db
+      .update(campaignMessagesTable)
+      .set({ unsubscribeToken: null })
+      .where(eq(campaignMessagesTable.unsubscribeToken, token));
+
+    logger.info(
+      { contactId: msg.contactId, campaignId: msg.campaignId, businessName, unsubscribedAt: new Date().toISOString() },
+      "Contact unsubscribed via email link",
+    );
+
+    res.status(200).send(
+      `<html><body style="font-family:sans-serif;max-width:600px;margin:40px auto;text-align:center;"><h2>Unsubscribed</h2><p>You have been unsubscribed from ${businessName}'s mailing list.</p><p style="color:#999;font-size:13px;">You will no longer receive marketing emails from them.</p></body></html>`,
+    );
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.get("/unsubscribe", handleUnsubscribe);
+
 router.use(requireAuth);
 
 function getMailTransport() {
@@ -259,9 +325,13 @@ router.post("/:id/send", async (req, res, next) => {
     for (const contact of eligibleContacts) {
       const msgId = generateToken(16);
       try {
+        const unsubToken = generateToken(16);
+        const apiBase = process.env["API_BASE_URL"] ?? `https://${process.env["REPLIT_DEV_DOMAIN"]}`;
+        const unsubUrl = `${apiBase}/api/unsubscribe?token=${unsubToken}`;
+
         const htmlBody = campaign.messageTemplate || "";
-        const unsubFooter = `<br/><hr style="margin-top:24px;border:none;border-top:1px solid #ccc"/><p style="font-size:11px;color:#999;">You received this email because you opted in to communications from ${business.name}. If you no longer wish to receive these emails, please reply with "unsubscribe" or contact us directly.</p>`;
-        const textBody = htmlBody.replace(/<[^>]*>/g, "") + `\n\n---\nYou received this email because you opted in to communications from ${business.name}. To unsubscribe, reply with "unsubscribe".`;
+        const unsubFooter = `<br/><hr style="margin-top:24px;border:none;border-top:1px solid #ccc"/><p style="font-size:11px;color:#999;">You received this email because you opted in to communications from ${business.name}. If you no longer wish to receive these emails, <a href="${unsubUrl}">click here to unsubscribe</a>.</p>`;
+        const textBody = htmlBody.replace(/<[^>]*>/g, "") + `\n\n---\nYou received this email because you opted in to communications from ${business.name}. To unsubscribe, visit: ${unsubUrl}`;
 
         await transport.sendMail({
           from: `${business.name} <${fromEmail}>`,
@@ -278,6 +348,7 @@ router.post("/:id/send", async (req, res, next) => {
           status: "sent",
           sentAt: new Date(),
           cost: EMAIL_COST_PENCE,
+          unsubscribeToken: unsubToken,
         });
         sentCount++;
       } catch {

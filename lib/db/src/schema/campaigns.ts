@@ -60,6 +60,7 @@ export const campaignMessagesTable = pgTable(
     sentAt: timestamp("sent_at"),
     deliveredAt: timestamp("delivered_at"),
     cost: integer("cost"),
+    unsubscribeToken: text("unsubscribe_token"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [index("campaign_messages_campaign_idx").on(t.campaignId)],

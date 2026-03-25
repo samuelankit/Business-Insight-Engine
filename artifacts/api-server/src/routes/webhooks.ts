@@ -1,11 +1,12 @@
 import { Router, type Request } from "express";
 import Stripe from "stripe";
 import { db } from "@workspace/db";
-import { userSubscriptionsTable, usersTable, walletsTable, walletTransactionsTable } from "@workspace/db/schema";
+import { userSubscriptionsTable, usersTable, walletsTable, walletTransactionsTable, contactsTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { PLANS, getOrCreateSubscription } from "../lib/usage.js";
 import { generateToken } from "../lib/crypto.js";
+import MessageValidator from "sns-validator";
 
 const router = Router();
 
@@ -226,6 +227,92 @@ router.post("/stripe", async (req: RawBodyRequest, res) => {
   } catch (err) {
     logger.error({ err }, "Stripe webhook processing error");
     res.status(500).json({ error: "Webhook processing failed" });
+  }
+});
+
+const snsValidator = new MessageValidator();
+const SNS_SUBSCRIBE_URL_PATTERN = /^https:\/\/sns\.[a-zA-Z0-9-]+\.amazonaws\.com\//;
+
+router.post("/ses-notifications", async (req, res) => {
+  try {
+    const message = req.body;
+
+    if (!message || typeof message !== "object") {
+      res.status(400).json({ error: "Invalid SNS payload" });
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      snsValidator.validate(message, (err: Error | null) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+
+    if (message.Type === "SubscriptionConfirmation") {
+      const subscribeUrl = message.SubscribeURL as string | undefined;
+      if (subscribeUrl && SNS_SUBSCRIBE_URL_PATTERN.test(subscribeUrl)) {
+        try {
+          await fetch(subscribeUrl);
+          logger.info({ topicArn: message.TopicArn }, "SNS subscription confirmed");
+        } catch (e) {
+          logger.warn({ e }, "Failed to confirm SNS subscription");
+        }
+      } else {
+        logger.warn({ subscribeUrl }, "SNS subscription confirmation URL failed domain check — ignoring");
+      }
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    if (message.Type !== "Notification") {
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    let notification: Record<string, unknown>;
+    try {
+      notification = JSON.parse(message.Message as string) as Record<string, unknown>;
+    } catch {
+      logger.warn("Failed to parse SNS notification message body");
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    const notifType = notification["notificationType"] as string | undefined;
+
+    if (notifType === "Bounce") {
+      const bounce = notification["bounce"] as { bounceType?: string; bouncedRecipients?: Array<{ emailAddress?: string }> } | undefined;
+      const recipients = bounce?.bouncedRecipients ?? [];
+      if (bounce?.bounceType === "Permanent") {
+        for (const r of recipients) {
+          if (!r.emailAddress) continue;
+          await db
+            .update(contactsTable)
+            .set({ dncListed: true })
+            .where(eq(contactsTable.email, r.emailAddress));
+          logger.info({ email: r.emailAddress }, "Contact DNC-listed due to permanent bounce");
+        }
+      }
+    } else if (notifType === "Complaint") {
+      const complaint = notification["complaint"] as { complainedRecipients?: Array<{ emailAddress?: string }> } | undefined;
+      const recipients = complaint?.complainedRecipients ?? [];
+      for (const r of recipients) {
+        if (!r.emailAddress) continue;
+        await db
+          .update(contactsTable)
+          .set({ dncListed: true, consentGiven: false })
+          .where(eq(contactsTable.email, r.emailAddress));
+        logger.info({ email: r.emailAddress }, "Contact DNC-listed and consent revoked due to complaint");
+      }
+    } else {
+      logger.info({ notifType }, "SNS SES notification: unhandled type");
+    }
+
+    res.status(200).json({ received: true });
+  } catch (err) {
+    logger.error({ err }, "SNS webhook validation or processing failed");
+    res.status(403).json({ error: "SNS signature verification failed" });
   }
 });
 

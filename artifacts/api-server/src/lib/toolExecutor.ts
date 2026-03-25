@@ -1,13 +1,124 @@
 import { db } from "@workspace/db";
 import { toolConnectionsTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
-import { decrypt } from "./crypto.js";
+import { decrypt, encrypt } from "./crypto.js";
+import { logger } from "./logger.js";
 
 interface ToolCredentials {
   accessToken?: string;
   apiKey?: string;
   trelloKey?: string;
   trelloToken?: string;
+}
+
+const GOOGLE_TOOL_NAMES = ["gmail", "google_calendar", "google_sheets"];
+const GOOGLE_OAUTH_CONFIG = {
+  tokenUrl: "https://oauth2.googleapis.com/token",
+  clientIdEnv: "GOOGLE_CLIENT_ID",
+  clientSecretEnv: "GOOGLE_CLIENT_SECRET",
+};
+
+async function refreshGoogleToken(conn: typeof toolConnectionsTable.$inferSelect): Promise<boolean> {
+  if (!conn.refreshToken) return false;
+
+  const clientId = process.env[GOOGLE_OAUTH_CONFIG.clientIdEnv];
+  const clientSecret = process.env[GOOGLE_OAUTH_CONFIG.clientSecretEnv];
+  if (!clientId || !clientSecret) return false;
+
+  try {
+    const tokenResp = await fetch(GOOGLE_OAUTH_CONFIG.tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: conn.refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    });
+
+    if (!tokenResp.ok) return false;
+
+    const tokenData = await tokenResp.json() as { access_token: string; expires_in?: number };
+    const newExpiresAt = tokenData.expires_in
+      ? new Date(Date.now() + tokenData.expires_in * 1000)
+      : null;
+
+    const raw = decrypt(conn.encryptedCredentials, conn.encryptedDek);
+    const existing = JSON.parse(raw) as Record<string, unknown>;
+    existing.accessToken = tokenData.access_token;
+    const { encryptedPayload, encryptedDek } = encrypt(JSON.stringify(existing));
+
+    for (const tName of GOOGLE_TOOL_NAMES) {
+      await db
+        .update(toolConnectionsTable)
+        .set({
+          encryptedCredentials: encryptedPayload,
+          encryptedDek,
+          tokenExpiresAt: newExpiresAt,
+          status: "active",
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(toolConnectionsTable.userId, conn.userId),
+            eq(toolConnectionsTable.toolName, tName),
+          ),
+        );
+    }
+
+    logger.info({ userId: conn.userId }, "On-demand Google token refresh succeeded");
+    return true;
+  } catch (e) {
+    logger.warn({ e, userId: conn.userId }, "On-demand Google token refresh failed");
+    return false;
+  }
+}
+
+interface ToolAuthExpiredResult {
+  error: "tool_auth_expired";
+  message: string;
+  toolName: string;
+}
+
+async function ensureTokenFresh(userId: string, toolName: string): Promise<ToolAuthExpiredResult | null> {
+  const [conn] = await db
+    .select()
+    .from(toolConnectionsTable)
+    .where(
+      and(
+        eq(toolConnectionsTable.userId, userId),
+        eq(toolConnectionsTable.toolName, toolName),
+        eq(toolConnectionsTable.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (!conn || conn.credentialType !== "oauth2" || !conn.refreshToken) return null;
+
+  if (!conn.tokenExpiresAt) return null;
+
+  const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
+  if (conn.tokenExpiresAt > fiveMinutesFromNow) return null;
+
+  const isGoogleTool = GOOGLE_TOOL_NAMES.includes(toolName);
+  if (isGoogleTool) {
+    const refreshed = await refreshGoogleToken(conn);
+    if (!refreshed) {
+      return {
+        error: "tool_auth_expired",
+        message: `Your Google connection needs to be reconnected. Go to Settings → Tools to reconnect.`,
+        toolName,
+      };
+    }
+    return null;
+  }
+
+  return {
+    error: "tool_auth_expired",
+    message: `Your ${toolName} connection needs to be reconnected. Go to Settings → Tools to reconnect.`,
+    toolName,
+  };
 }
 
 async function getCredentials(
@@ -233,6 +344,9 @@ export async function executeTool(
   allowPending = false,
 ): Promise<unknown> {
   if (!allowPending) {
+    const authError = await ensureTokenFresh(userId, toolName);
+    if (authError) return authError;
+
     await db
       .update(toolConnectionsTable)
       .set({ lastUsedAt: new Date() })

@@ -70,6 +70,59 @@ async function applyMigrations() {
   } catch (err) {
     logger.warn({ err }, "campaigns email columns migration failed (may already be applied)");
   }
+
+  try {
+    await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
+    logger.info("pgvector extension enabled");
+  } catch (err) {
+    logger.warn({ err }, "pgvector extension migration failed (may already be applied)");
+  }
+
+  try {
+    await db.execute(sql`
+      ALTER TABLE knowledge_chunks
+      ADD COLUMN IF NOT EXISTS embedding_vec vector(1536)
+    `);
+    logger.info("knowledge_chunks.embedding_vec migration applied");
+  } catch (err) {
+    logger.warn({ err }, "knowledge_chunks.embedding_vec migration failed (may already be applied)");
+  }
+
+  try {
+    await db.execute(sql`
+      ALTER TABLE campaign_messages
+      ADD COLUMN IF NOT EXISTS unsubscribe_token TEXT
+    `);
+    logger.info("campaign_messages.unsubscribe_token migration applied");
+  } catch (err) {
+    logger.warn({ err }, "campaign_messages.unsubscribe_token migration failed (may already be applied)");
+  }
+
+  try {
+    await db.execute(sql`
+      ALTER TABLE voice_preferences
+      ADD COLUMN IF NOT EXISTS failed_attempts INTEGER DEFAULT 0
+    `);
+    await db.execute(sql`
+      ALTER TABLE voice_preferences
+      ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP
+    `);
+    logger.info("voice_preferences PIN lockout columns migration applied");
+  } catch (err) {
+    logger.warn({ err }, "voice_preferences PIN lockout migration failed (may already be applied)");
+  }
+
+  try {
+    await db.execute(sql`
+      UPDATE knowledge_chunks
+      SET embedding_vec = embedding::vector
+      WHERE embedding IS NOT NULL
+        AND embedding_vec IS NULL
+    `);
+    logger.info("knowledge_chunks embedding backfill applied");
+  } catch (err) {
+    logger.warn({ err }, "knowledge_chunks embedding backfill failed (may already be applied or vector ext not yet active)");
+  }
 }
 
 applyMigrations().then(() => {

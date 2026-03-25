@@ -342,6 +342,9 @@ router.post("/pin/set", requireAuth, async (req, res, next) => {
   }
 });
 
+const PIN_MAX_ATTEMPTS = 3;
+const PIN_LOCKOUT_MINUTES = 30;
+
 router.post("/pin/verify", requireAuth, async (req, res, next) => {
   try {
     const { pin } = req.body as { pin?: string };
@@ -356,11 +359,47 @@ router.post("/pin/verify", requireAuth, async (req, res, next) => {
       return;
     }
 
+    if (pref.lockedUntil) {
+      if (pref.lockedUntil > new Date()) {
+        const minutesLeft = Math.ceil((pref.lockedUntil.getTime() - Date.now()) / 60_000);
+        res.status(429).json({ error: `PIN locked. Try again in ${minutesLeft} minute${minutesLeft !== 1 ? "s" : ""}.` });
+        return;
+      } else {
+        await db
+          .update(voicePreferencesTable)
+          .set({ failedAttempts: 0, lockedUntil: null, updatedAt: new Date() })
+          .where(eq(voicePreferencesTable.userId, req.userId!));
+        pref.failedAttempts = 0;
+        pref.lockedUntil = null;
+      }
+    }
+
     const inputHash = hashPin(pin);
     if (!safeCompareHash(inputHash, pref.voicePinHash)) {
-      res.status(401).json({ error: "Incorrect PIN" });
+      const currentAttempts = (pref.failedAttempts ?? 0) + 1;
+      const shouldLock = currentAttempts >= PIN_MAX_ATTEMPTS;
+      await db
+        .update(voicePreferencesTable)
+        .set({
+          failedAttempts: currentAttempts,
+          lockedUntil: shouldLock ? new Date(Date.now() + PIN_LOCKOUT_MINUTES * 60_000) : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(voicePreferencesTable.userId, req.userId!));
+
+      if (shouldLock) {
+        res.status(429).json({ error: `Too many incorrect attempts. PIN locked for ${PIN_LOCKOUT_MINUTES} minutes.` });
+      } else {
+        const remaining = PIN_MAX_ATTEMPTS - currentAttempts;
+        res.status(401).json({ error: `Incorrect PIN. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.` });
+      }
       return;
     }
+
+    await db
+      .update(voicePreferencesTable)
+      .set({ failedAttempts: 0, lockedUntil: null, updatedAt: new Date() })
+      .where(eq(voicePreferencesTable.userId, req.userId!));
 
     await db.delete(voiceSessionsTable)
       .where(and(eq(voiceSessionsTable.userId, req.userId!), lt(voiceSessionsTable.expiresAt, new Date())));

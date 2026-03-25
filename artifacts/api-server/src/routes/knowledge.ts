@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { knowledgeDocumentsTable, knowledgeChunksTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateToken } from "../lib/crypto.js";
 import multer from "multer";
@@ -69,6 +69,16 @@ async function processDocument(
   if (insertedChunks.length > 0) {
     for (const chunk of insertedChunks) {
       await db.insert(knowledgeChunksTable).values(chunk);
+      if (chunk.embedding) {
+        try {
+          await db.execute(sql`
+            UPDATE knowledge_chunks
+            SET embedding_vec = ${chunk.embedding}::vector
+            WHERE id = ${chunk.id}
+          `);
+        } catch {
+        }
+      }
     }
   }
 
