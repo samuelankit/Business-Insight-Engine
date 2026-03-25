@@ -104,9 +104,9 @@ const VOICE_SESSION_EXPIRY_KEY = "@gorigo/voice_session_expiry";
 const VOICE_INTRO_SHOWN_KEY = "@gorigo/voice_intro_shown";
 
 export default function CommunicationsScreen() {
+  const router = useRouter();
   const { token, activeBusinessId } = useApp();
   const queryClient = useQueryClient();
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
 
   const [showAddContact, setShowAddContact] = useState(false);
@@ -1177,6 +1177,11 @@ export default function CommunicationsScreen() {
             </TouchableOpacity>
           </View>
         )}
+        {activeTab === "campaigns" && (
+          <TouchableOpacity style={styles.addBtn} onPress={() => router.push("/create-campaign")}>
+            <Feather name="plus" size={18} color="#0A0A0A" />
+          </TouchableOpacity>
+        )}
         {activeTab === "voice" && (
           <View style={styles.voiceHeaderActions}>
             <TouchableOpacity onPress={() => setShowPrefsModal(true)} style={styles.iconBtn}>
@@ -1504,12 +1509,20 @@ export default function CommunicationsScreen() {
               <View style={styles.emptyState}>
                 <Feather name="send" size={40} color="#2A2A2A" />
                 <Text style={styles.emptyTitle}>No campaigns yet</Text>
-                <Text style={styles.emptySubtitle}>Create your first campaign to reach your contacts</Text>
+                <Text style={styles.emptySubtitle}>Create your first email campaign to reach your contacts</Text>
+                <TouchableOpacity style={styles.emptyAddBtn} onPress={() => router.push("/create-campaign")}>
+                  <Text style={styles.emptyAddBtnText}>New Campaign</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <View style={styles.listContainer}>
                 {campaigns.map((campaign) => (
-                  <View key={campaign.id} style={styles.campaignCard}>
+                  <TouchableOpacity
+                    key={campaign.id}
+                    style={styles.campaignCard}
+                    activeOpacity={0.7}
+                    onPress={() => router.push({ pathname: "/campaign-detail", params: { id: campaign.id } })}
+                  >
                     <View style={styles.campaignHeader}>
                       <Text style={styles.campaignName}>{campaign.name}</Text>
                       <View style={[styles.statusDot, { backgroundColor: statusColor(campaign.status) }]} />
@@ -1533,7 +1546,7 @@ export default function CommunicationsScreen() {
                         <Text style={styles.statLabel}>Rate</Text>
                       </View>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             )

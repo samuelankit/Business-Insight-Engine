@@ -47,7 +47,7 @@ Express 5 server with **22 route groups** mounted at `/api`:
 | `/api/usage` | Usage tracking + plan limits |
 | `/api/team` | Team member management + invite system |
 | `/api/contacts` | CRM contacts (GDPR/PECR compliant) |
-| `/api/campaigns` | Marketing campaign management |
+| `/api/campaigns` | Marketing campaign management (email via SMTP/nodemailer, send, schedule, pause/resume/cancel, ownership-scoped) |
 | `/api/notifications` | Push notifications |
 | `/api/referrals` | Referral program |
 | `/api/reports` | Business analytics |

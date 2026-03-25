@@ -24,6 +24,7 @@ export const businessesTable = pgTable(
     accountType: text("account_type"),
     intent: text("intent"),
     background: text("background"),
+    fromEmail: text("from_email"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

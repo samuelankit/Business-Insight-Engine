@@ -23,6 +23,7 @@ export const campaignsTable = pgTable(
     name: text("name").notNull(),
     type: text("type").notNull().default("sms"),
     listId: text("list_id").references(() => contactListsTable.id),
+    subject: text("subject"),
     messageTemplate: text("message_template"),
     status: text("status").notNull().default("draft"),
     scheduledStart: timestamp("scheduled_start"),

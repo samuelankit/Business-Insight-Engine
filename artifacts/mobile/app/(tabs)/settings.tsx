@@ -38,6 +38,11 @@ export default function SettingsScreen() {
   const [emailStep, setEmailStep] = useState<"input" | "otp">("input");
   const [emailLoading, setEmailLoading] = useState(false);
   const otpRefs = useRef<(TextInput | null)[]>([]);
+  const [showFromEmailModal, setShowFromEmailModal] = useState(false);
+  const [fromEmailInput, setFromEmailInput] = useState("");
+  const [fromEmailSaving, setFromEmailSaving] = useState(false);
+  const [verifyingSmtp, setVerifyingSmtp] = useState(false);
+  const [smtpStatus, setSmtpStatus] = useState<{ verified: boolean; message: string } | null>(null);
 
   const apiBase = `https://${process.env["EXPO_PUBLIC_DOMAIN"]}/api`;
   const headers = { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" };
@@ -516,6 +521,46 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Campaign Email */}
+        {businesses.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Campaign Email</Text>
+            <View style={styles.card}>
+              {(() => {
+                const activeBiz = businesses.find((b: any) => b.isActive) || businesses[0];
+                return (
+                  <>
+                    <View style={styles.emailRow}>
+                      <View style={styles.emailIcon}>
+                        <Feather name="send" size={16} color={GOLD} />
+                      </View>
+                      <View style={styles.emailInfo}>
+                        <Text style={styles.emailLabel}>Sender Email</Text>
+                        <Text style={styles.emailValue}>
+                          {activeBiz?.fromEmail ?? "Not configured"}
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.addEmailBtn}
+                      onPress={() => {
+                        setFromEmailInput(activeBiz?.fromEmail ?? "");
+                        setSmtpStatus(null);
+                        setShowFromEmailModal(true);
+                      }}
+                    >
+                      <Feather name={activeBiz?.fromEmail ? "edit-2" : "plus"} size={14} color={GOLD} />
+                      <Text style={styles.addEmailText}>
+                        {activeBiz?.fromEmail ? "Change Sender Email" : "Set Sender Email"}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                );
+              })()}
+            </View>
+          </View>
+        )}
+
         {/* Team */}
         {teamRole && (
           <View style={styles.section}>
@@ -784,6 +829,112 @@ export default function SettingsScreen() {
                 )}
               </TouchableOpacity>
             )}
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* From Email Modal */}
+      <Modal visible={showFromEmailModal} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Campaign Email</Text>
+            <TouchableOpacity onPress={() => setShowFromEmailModal(false)}>
+              <Feather name="x" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <Text style={styles.fieldLabel}>Sender Email Address</Text>
+            <TextInput
+              style={styles.textInput}
+              value={fromEmailInput}
+              onChangeText={setFromEmailInput}
+              placeholder="campaigns@yourdomain.com"
+              placeholderTextColor="#555"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.securityNote}>
+              <Feather name="info" size={14} color={GOLD} />
+              <Text style={styles.securityText}>
+                This email address will be used as the "From" address when sending campaign emails. Make sure it matches your SMTP configuration.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.addEmailBtn, { marginTop: 16 }]}
+              onPress={async () => {
+                setVerifyingSmtp(true);
+                setSmtpStatus(null);
+                try {
+                  const resp = await fetch(`${apiBase}/campaigns/verify-sender`, {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({ email: fromEmailInput.trim() }),
+                  });
+                  const data = await resp.json();
+                  setSmtpStatus(data);
+                } catch {
+                  setSmtpStatus({ verified: false, message: "Connection error" });
+                } finally {
+                  setVerifyingSmtp(false);
+                }
+              }}
+              disabled={verifyingSmtp || !fromEmailInput.trim()}
+            >
+              {verifyingSmtp ? (
+                <ActivityIndicator size="small" color={GOLD} />
+              ) : (
+                <>
+                  <Feather name="check-circle" size={14} color={GOLD} />
+                  <Text style={styles.addEmailText}>Verify SMTP Connection</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {smtpStatus && (
+              <View style={[styles.securityNote, { marginTop: 8, borderColor: smtpStatus.verified ? "#22C55E44" : "#EF444444", backgroundColor: smtpStatus.verified ? "#22C55E08" : "#EF444408" }]}>
+                <Feather name={smtpStatus.verified ? "check-circle" : "alert-circle"} size={14} color={smtpStatus.verified ? "#22C55E" : "#EF4444"} />
+                <Text style={[styles.securityText, { color: smtpStatus.verified ? "#22C55E" : "#EF4444" }]}>
+                  {smtpStatus.message}
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+          <View style={styles.modalFooter}>
+            <TouchableOpacity
+              style={[styles.saveBtn, !fromEmailInput.trim() && styles.saveBtnDisabled]}
+              onPress={async () => {
+                const activeBiz = businesses.find((b: any) => b.isActive) || businesses[0];
+                if (!activeBiz) return;
+                setFromEmailSaving(true);
+                try {
+                  const resp = await fetch(`${apiBase}/businesses/${activeBiz.id}`, {
+                    method: "PUT",
+                    headers,
+                    body: JSON.stringify({ fromEmail: fromEmailInput.trim() }),
+                  });
+                  if (resp.ok) {
+                    setShowFromEmailModal(false);
+                    queryClient.invalidateQueries({ queryKey: ["businesses"] });
+                    Alert.alert("Saved", "Campaign sender email updated.");
+                  } else {
+                    Alert.alert("Error", "Failed to save sender email.");
+                  }
+                } catch {
+                  Alert.alert("Error", "Network error. Please try again.");
+                } finally {
+                  setFromEmailSaving(false);
+                }
+              }}
+              disabled={!fromEmailInput.trim() || fromEmailSaving}
+            >
+              {fromEmailSaving ? (
+                <ActivityIndicator color="#0A0A0A" />
+              ) : (
+                <Text style={styles.saveBtnText}>Save Sender Email</Text>
+              )}
+            </TouchableOpacity>
           </View>
         </SafeAreaView>
       </Modal>

@@ -56,6 +56,20 @@ async function applyMigrations() {
   } catch (err) {
     logger.warn({ err }, "contact_notes migration step failed (may already be applied)");
   }
+
+  try {
+    await db.execute(sql`
+      ALTER TABLE businesses
+      ADD COLUMN IF NOT EXISTS from_email TEXT
+    `);
+    await db.execute(sql`
+      ALTER TABLE campaigns
+      ADD COLUMN IF NOT EXISTS subject TEXT
+    `);
+    logger.info("campaigns email columns migration applied");
+  } catch (err) {
+    logger.warn({ err }, "campaigns email columns migration failed (may already be applied)");
+  }
 }
 
 applyMigrations().then(() => {

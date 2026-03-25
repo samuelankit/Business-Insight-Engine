@@ -31,6 +31,7 @@ const UpdateSchema = z.object({
   accountType: z.string().optional().nullable(),
   intent: z.string().optional().nullable(),
   background: z.string().optional().nullable(),
+  fromEmail: z.string().email().optional().nullable(),
 });
 
 router.get("/", async (req, res, next) => {
@@ -232,6 +233,7 @@ function mapBusiness(b: typeof businessesTable.$inferSelect) {
     accountType: b.accountType,
     intent: b.intent,
     background: b.background,
+    fromEmail: b.fromEmail,
     createdAt: b.createdAt.toISOString(),
   };
 }
