@@ -65,3 +65,18 @@ export const contactListMembersTable = pgTable(
   },
   (t) => [index("contact_list_members_list_idx").on(t.listId)],
 );
+
+export const contactNotesTable = pgTable(
+  "contact_notes",
+  {
+    id: text("id").primaryKey(),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contactsTable.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("contact_notes_contact_idx").on(t.contactId)],
+);
+
+export type ContactNote = typeof contactNotesTable.$inferSelect;

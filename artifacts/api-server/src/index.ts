@@ -29,6 +29,33 @@ async function applyMigrations() {
   } catch (err) {
     logger.warn({ err }, "Migration step failed (may already be applied)");
   }
+
+  try {
+    await db.execute(sql`
+      ALTER TABLE contacts
+      ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'::jsonb
+    `);
+    logger.info("contacts.tags migration applied");
+  } catch (err) {
+    logger.warn({ err }, "contacts.tags migration step failed (may already be applied)");
+  }
+
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS contact_notes (
+        id TEXT PRIMARY KEY,
+        contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS contact_notes_contact_idx ON contact_notes(contact_id)
+    `);
+    logger.info("contact_notes migration applied");
+  } catch (err) {
+    logger.warn({ err }, "contact_notes migration step failed (may already be applied)");
+  }
 }
 
 applyMigrations().then(() => {

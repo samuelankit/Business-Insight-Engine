@@ -52,6 +52,7 @@ function RootLayoutNav() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="recover-account" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="contact-detail" />
       </Stack>
     </>
   );

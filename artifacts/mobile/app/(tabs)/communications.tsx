@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
+import { useRouter } from "expo-router";
 import Colors from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
 
@@ -32,6 +33,13 @@ interface Contact {
   consentGiven: boolean;
   dncListed: boolean;
   tags: string[];
+}
+
+interface ContactList {
+  id: string;
+  name: string;
+  contactCount: number;
+  createdAt: string;
 }
 
 interface Campaign {
@@ -98,12 +106,24 @@ const VOICE_INTRO_SHOWN_KEY = "@gorigo/voice_intro_shown";
 export default function CommunicationsScreen() {
   const { token, activeBusinessId } = useApp();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("contacts");
 
   const [showAddContact, setShowAddContact] = useState(false);
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+
+  // Contacts tab state
+  const [contactSearch, setContactSearch] = useState("");
+  const [showImportPreview, setShowImportPreview] = useState(false);
+  const [importRows, setImportRows] = useState<{ name?: string; email?: string; phone?: string }[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const [showNewListModal, setShowNewListModal] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  const [showListDetail, setShowListDetail] = useState(false);
 
   const [voiceSessionToken, setVoiceSessionToken] = useState<string | null>(null);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -903,11 +923,139 @@ export default function CommunicationsScreen() {
     queryKey: ["contacts", activeBusinessId],
     queryFn: async () => {
       if (!activeBusinessId) return { contacts: [], total: 0 };
-      const resp = await fetch(`${apiBase}/contacts?businessId=${activeBusinessId}&limit=50`, { headers });
+      const resp = await fetch(`${apiBase}/contacts?businessId=${activeBusinessId}&limit=200`, { headers });
       return resp.ok ? resp.json() : { contacts: [], total: 0 };
     },
     enabled: !!token && !!activeBusinessId,
   });
+
+  const { data: contactLists = [], isLoading: listsLoading } = useQuery<ContactList[]>({
+    queryKey: ["contact-lists", activeBusinessId],
+    queryFn: async () => {
+      if (!activeBusinessId) return [];
+      const resp = await fetch(`${apiBase}/contacts/list?businessId=${activeBusinessId}`, { headers });
+      return resp.ok ? resp.json() : [];
+    },
+    enabled: !!token && !!activeBusinessId && activeTab === "contacts",
+  });
+
+  const { data: listMembers = [] } = useQuery<Contact[]>({
+    queryKey: ["list-members", selectedListId],
+    queryFn: async () => {
+      if (!selectedListId) return [];
+      const resp = await fetch(`${apiBase}/contacts/list/${selectedListId}/members`, { headers });
+      return resp.ok ? resp.json() : [];
+    },
+    enabled: !!selectedListId,
+  });
+
+  const filteredContacts = useMemo(() => {
+    const all = contactsData?.contacts ?? [];
+    if (!contactSearch.trim()) return all;
+    const q = contactSearch.toLowerCase();
+    return all.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.email ?? "").toLowerCase().includes(q) ||
+        (c.phone ?? "").includes(q),
+    );
+  }, [contactsData, contactSearch]);
+
+  const createList = useMutation({
+    mutationFn: async (name: string) => {
+      const resp = await fetch(`${apiBase}/contacts/list`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ businessId: activeBusinessId, name }),
+      });
+      if (!resp.ok) throw new Error("Failed to create list");
+      return resp.json();
+    },
+    onSuccess: () => {
+      setShowNewListModal(false);
+      setNewListName("");
+      queryClient.invalidateQueries({ queryKey: ["contact-lists"] });
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
+  const deleteList = useMutation({
+    mutationFn: async (listId: string) => {
+      await fetch(`${apiBase}/contacts/list/${listId}`, { method: "DELETE", headers });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["contact-lists"] }),
+  });
+
+  const addToList = useMutation({
+    mutationFn: async ({ listId, contactId }: { listId: string; contactId: string }) => {
+      await fetch(`${apiBase}/contacts/list/${listId}/members`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ contactId }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["list-members", selectedListId] });
+      queryClient.invalidateQueries({ queryKey: ["contact-lists"] });
+    },
+  });
+
+  const removeFromList = useMutation({
+    mutationFn: async ({ listId, contactId }: { listId: string; contactId: string }) => {
+      await fetch(`${apiBase}/contacts/list/${listId}/members/${contactId}`, { method: "DELETE", headers });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["list-members", selectedListId] });
+      queryClient.invalidateQueries({ queryKey: ["contact-lists"] });
+    },
+  });
+
+  const handleImportCSV = async () => {
+    try {
+      const DocumentPicker = await import("expo-document-picker");
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["text/csv", "text/comma-separated-values", "application/csv", "text/plain"],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const asset = result.assets[0]!;
+      let csvText = "";
+
+      if (Platform.OS === "web" && asset.file) {
+        csvText = await asset.file.text();
+      } else {
+        const { FileSystem } = await import("expo-file-system");
+        csvText = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      }
+
+      const rows = parseCSVPreview(csvText);
+      setImportRows(rows);
+      setImportResult(null);
+      setShowImportPreview(true);
+    } catch (err) {
+      Alert.alert("Error", "Failed to read CSV file");
+    }
+  };
+
+  const confirmImport = async () => {
+    if (!activeBusinessId) return;
+    setImportLoading(true);
+    try {
+      const resp = await fetch(`${apiBase}/contacts/import`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ businessId: activeBusinessId, contacts: importRows }),
+      });
+      const data = await resp.json();
+      setImportResult({ imported: data.imported, skipped: data.skipped });
+      queryClient.invalidateQueries({ queryKey: ["contacts"] });
+    } catch {
+      Alert.alert("Error", "Import failed. Please try again.");
+    } finally {
+      setImportLoading(false);
+    }
+  };
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
     queryKey: ["campaigns", activeBusinessId],
@@ -971,6 +1119,36 @@ export default function CommunicationsScreen() {
 
   const formatBalance = (pence: number) => `£${(pence / 100).toFixed(2)}`;
 
+  const parseCSVPreview = (text: string): { name?: string; email?: string; phone?: string }[] => {
+    const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter((l) => l.trim());
+    if (lines.length < 2) return [];
+    const parseRow = (line: string): string[] => {
+      const result: string[] = [];
+      let current = "";
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i]!;
+        if (c === '"') { if (inQuotes && line[i + 1] === '"') { current += '"'; i++; } else inQuotes = !inQuotes; }
+        else if (c === "," && !inQuotes) { result.push(current); current = ""; }
+        else { current += c; }
+      }
+      result.push(current);
+      return result;
+    };
+    const headers = parseRow(lines[0]!).map((h) => h.toLowerCase().trim());
+    const nameIdx = headers.findIndex((h) => h.includes("name"));
+    const emailIdx = headers.findIndex((h) => h.includes("email"));
+    const phoneIdx = headers.findIndex((h) => h.includes("phone") || h.includes("mobile") || h.includes("tel"));
+    return lines.slice(1).map((line) => {
+      const cols = parseRow(line);
+      const r: { name?: string; email?: string; phone?: string } = {};
+      if (nameIdx >= 0 && cols[nameIdx]) r.name = cols[nameIdx]!.trim();
+      if (emailIdx >= 0 && cols[emailIdx]) r.email = cols[emailIdx]!.trim();
+      if (phoneIdx >= 0 && cols[phoneIdx]) r.phone = cols[phoneIdx]!.trim();
+      return r;
+    }).filter((r) => r.name || r.email || r.phone);
+  };
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -990,9 +1168,14 @@ export default function CommunicationsScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Communications</Text>
         {activeTab === "contacts" && (
-          <TouchableOpacity style={styles.addBtn} onPress={() => setShowAddContact(true)}>
-            <Feather name="plus" size={18} color="#0A0A0A" />
-          </TouchableOpacity>
+          <View style={styles.contactHeaderActions}>
+            <TouchableOpacity style={styles.importBtn} onPress={handleImportCSV}>
+              <Feather name="upload" size={15} color="#8A8A8A" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.addBtn} onPress={() => setShowAddContact(true)}>
+              <Feather name="plus" size={18} color="#0A0A0A" />
+            </TouchableOpacity>
+          </View>
         )}
         {activeTab === "voice" && (
           <View style={styles.voiceHeaderActions}>
@@ -1203,56 +1386,117 @@ export default function CommunicationsScreen() {
       ) : (
         <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
           {activeTab === "contacts" ? (
-            contactsLoading ? (
-              <Text style={styles.emptyText}>Loading...</Text>
-            ) : !contactsData?.contacts.length ? (
-              <View style={styles.emptyState}>
-                <Feather name="users" size={40} color="#2A2A2A" />
-                <Text style={styles.emptyTitle}>No contacts yet</Text>
-                <Text style={styles.emptySubtitle}>Add your first contact to get started with communications</Text>
-                <TouchableOpacity style={styles.emptyAddBtn} onPress={() => setShowAddContact(true)}>
-                  <Text style={styles.emptyAddBtnText}>Add Contact</Text>
-                </TouchableOpacity>
+            <>
+              {/* Search bar */}
+              <View style={styles.searchContainer}>
+                <Feather name="search" size={16} color="#555" style={styles.searchIcon} />
+                <TextInput
+                  style={styles.searchInput}
+                  value={contactSearch}
+                  onChangeText={setContactSearch}
+                  placeholder="Search by name, email, phone..."
+                  placeholderTextColor="#555"
+                  autoCapitalize="none"
+                  clearButtonMode="while-editing"
+                />
               </View>
-            ) : (
-              <View style={styles.listContainer}>
-                {contactsData.contacts.map((contact) => (
-                  <View key={contact.id} style={styles.contactCard}>
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{contact.name.charAt(0).toUpperCase()}</Text>
-                    </View>
-                    <View style={styles.contactInfo}>
-                      <Text style={styles.contactName}>{contact.name}</Text>
-                      <Text style={styles.contactMeta}>
-                        {contact.phone ?? contact.email ?? "No contact info"}
-                      </Text>
-                      <View style={styles.contactBadges}>
-                        {contact.consentGiven && (
-                          <View style={styles.badge}>
-                            <Text style={styles.badgeText}>Consent ✓</Text>
+
+              {contactsLoading ? (
+                <ActivityIndicator color={GOLD} style={{ marginTop: 32 }} />
+              ) : !contactsData?.contacts.length ? (
+                <View style={styles.emptyState}>
+                  <Feather name="users" size={40} color="#2A2A2A" />
+                  <Text style={styles.emptyTitle}>No contacts yet</Text>
+                  <Text style={styles.emptySubtitle}>Add your first contact or import from CSV</Text>
+                  <TouchableOpacity style={styles.emptyAddBtn} onPress={() => setShowAddContact(true)}>
+                    <Text style={styles.emptyAddBtnText}>Add Contact</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.listContainer}>
+                  {filteredContacts.length === 0 && contactSearch.trim() ? (
+                    <Text style={[styles.emptyText, { margin: 16 }]}>No contacts match your search</Text>
+                  ) : (
+                    filteredContacts.map((contact) => (
+                      <TouchableOpacity
+                        key={contact.id}
+                        style={[styles.contactCard, contact.dncListed && styles.contactCardDNC]}
+                        onPress={() => router.push({ pathname: "/contact-detail", params: { id: contact.id } })}
+                      >
+                        <View style={styles.avatar}>
+                          <Text style={styles.avatarText}>{contact.name.charAt(0).toUpperCase()}</Text>
+                        </View>
+                        <View style={styles.contactInfo}>
+                          <Text style={styles.contactName}>{contact.name}</Text>
+                          <Text style={styles.contactMeta}>
+                            {contact.phone ?? contact.email ?? "No contact info"}
+                          </Text>
+                          <View style={styles.contactBadges}>
+                            {contact.consentGiven && (
+                              <View style={styles.badge}>
+                                <Text style={styles.badgeText}>Consent ✓</Text>
+                              </View>
+                            )}
+                            {contact.dncListed && (
+                              <View style={[styles.badge, styles.dncBadge]}>
+                                <Text style={styles.dncBadgeText}>DNC</Text>
+                              </View>
+                            )}
+                            {(contact.tags ?? []).slice(0, 2).map((tag) => (
+                              <View key={tag} style={styles.tagBadge}>
+                                <Text style={styles.tagBadgeText}>{tag}</Text>
+                              </View>
+                            ))}
                           </View>
-                        )}
-                        {contact.dncListed && (
-                          <View style={[styles.badge, styles.dncBadge]}>
-                            <Text style={styles.dncBadgeText}>DNC</Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
+                        </View>
+                        <Feather name="chevron-right" size={16} color="#555" />
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </View>
+              )}
+
+              {/* Contact Lists Section */}
+              <View style={styles.listsSection}>
+                <View style={styles.listsSectionHeader}>
+                  <Text style={styles.listsSectionTitle}>Contact Lists</Text>
+                  <TouchableOpacity onPress={() => setShowNewListModal(true)} style={styles.newListBtn}>
+                    <Feather name="plus" size={14} color={GOLD} />
+                    <Text style={styles.newListBtnText}>New List</Text>
+                  </TouchableOpacity>
+                </View>
+                {listsLoading ? (
+                  <ActivityIndicator color={GOLD} style={{ marginTop: 12 }} />
+                ) : contactLists.length === 0 ? (
+                  <Text style={[styles.emptyText, { padding: 16 }]}>No lists yet. Create one to organize contacts.</Text>
+                ) : (
+                  contactLists.map((list) => (
                     <TouchableOpacity
-                      onPress={() => {
-                        Alert.alert("Delete Contact", "Are you sure?", [
-                          { text: "Cancel" },
-                          { text: "Delete", style: "destructive", onPress: () => deleteContact.mutate(contact.id) },
-                        ]);
-                      }}
+                      key={list.id}
+                      style={styles.listCard}
+                      onPress={() => { setSelectedListId(list.id); setShowListDetail(true); }}
                     >
-                      <Feather name="trash-2" size={16} color="#555" />
+                      <View style={styles.listCardLeft}>
+                        <Feather name="list" size={16} color={GOLD} />
+                        <View style={{ marginLeft: 10 }}>
+                          <Text style={styles.listCardName}>{list.name}</Text>
+                          <Text style={styles.listCardCount}>{list.contactCount} contacts</Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => Alert.alert("Delete List", `Delete "${list.name}"?`, [
+                          { text: "Cancel", style: "cancel" },
+                          { text: "Delete", style: "destructive", onPress: () => deleteList.mutate(list.id) },
+                        ])}
+                      >
+                        <Feather name="trash-2" size={15} color="#555" />
+                      </TouchableOpacity>
                     </TouchableOpacity>
-                  </View>
-                ))}
+                  ))
+                )}
               </View>
-            )
+              <View style={{ height: 40 }} />
+            </>
           ) : (
             campaignsLoading ? (
               <Text style={styles.emptyText}>Loading...</Text>
@@ -1547,6 +1791,145 @@ export default function CommunicationsScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* CSV Import Preview Modal */}
+      <Modal visible={showImportPreview} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Import CSV</Text>
+            <TouchableOpacity onPress={() => { setShowImportPreview(false); setImportResult(null); }}>
+              <Feather name="x" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            {importResult ? (
+              <View style={styles.importResult}>
+                <Feather name="check-circle" size={40} color="#22C55E" />
+                <Text style={styles.importResultTitle}>Import Complete</Text>
+                <Text style={styles.importResultText}>{importResult.imported} contacts imported, {importResult.skipped} skipped (duplicates or errors)</Text>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.importPreviewLabel}>
+                  Preview — {importRows.length} rows found
+                </Text>
+                {importRows.slice(0, 5).map((row, i) => (
+                  <View key={i} style={styles.importRow}>
+                    <Text style={styles.importRowName}>{row.name ?? "—"}</Text>
+                    <Text style={styles.importRowMeta}>{row.email ?? ""}{row.email && row.phone ? " · " : ""}{row.phone ?? ""}</Text>
+                  </View>
+                ))}
+                {importRows.length > 5 && (
+                  <Text style={styles.importMoreText}>+ {importRows.length - 5} more rows</Text>
+                )}
+              </>
+            )}
+          </ScrollView>
+          <View style={styles.modalFooter}>
+            {importResult ? (
+              <TouchableOpacity
+                style={styles.createBtn}
+                onPress={() => { setShowImportPreview(false); setImportResult(null); }}
+              >
+                <Text style={styles.createBtnText}>Done</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.createBtn, importRows.length === 0 && styles.createBtnDisabled]}
+                onPress={confirmImport}
+                disabled={importRows.length === 0 || importLoading}
+              >
+                {importLoading ? (
+                  <ActivityIndicator color="#0A0A0A" />
+                ) : (
+                  <Text style={styles.createBtnText}>Import {importRows.length} Contacts</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* New List Modal */}
+      <Modal visible={showNewListModal} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>New Contact List</Text>
+            <TouchableOpacity onPress={() => { setShowNewListModal(false); setNewListName(""); }}>
+              <Feather name="x" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <Text style={styles.fieldLabel}>List Name *</Text>
+            <TextInput
+              style={styles.textInput}
+              value={newListName}
+              onChangeText={setNewListName}
+              placeholder="e.g. VIP Clients, Newsletter"
+              placeholderTextColor="#555"
+              autoFocus
+            />
+          </ScrollView>
+          <View style={styles.modalFooter}>
+            <TouchableOpacity
+              style={[styles.createBtn, !newListName.trim() && styles.createBtnDisabled]}
+              onPress={() => { if (newListName.trim()) createList.mutate(newListName.trim()); }}
+              disabled={!newListName.trim() || createList.isPending}
+            >
+              {createList.isPending ? <ActivityIndicator color="#0A0A0A" /> : <Text style={styles.createBtnText}>Create List</Text>}
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* List Detail Modal */}
+      <Modal visible={showListDetail} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {contactLists.find((l) => l.id === selectedListId)?.name ?? "List"}
+            </Text>
+            <TouchableOpacity onPress={() => { setShowListDetail(false); setSelectedListId(null); }}>
+              <Feather name="x" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <Text style={styles.listDetailSectionLabel}>Members ({listMembers.length})</Text>
+            {listMembers.length === 0 ? (
+              <Text style={[styles.emptyText, { marginBottom: 16 }]}>No members yet</Text>
+            ) : (
+              listMembers.map((contact) => (
+                <View key={contact.id} style={styles.listMemberRow}>
+                  <View style={styles.listMemberInfo}>
+                    <Text style={styles.listMemberName}>{contact.name}</Text>
+                    <Text style={styles.listMemberMeta}>{contact.phone ?? contact.email ?? "—"}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => {
+                    if (selectedListId) removeFromList.mutate({ listId: selectedListId, contactId: contact.id });
+                  }}>
+                    <Feather name="x" size={16} color="#555" />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+            <Text style={[styles.listDetailSectionLabel, { marginTop: 20 }]}>Add contacts</Text>
+            {(contactsData?.contacts ?? [])
+              .filter((c) => !listMembers.some((m) => m.id === c.id))
+              .map((contact) => (
+                <TouchableOpacity
+                  key={contact.id}
+                  style={styles.listAddContactRow}
+                  onPress={() => {
+                    if (selectedListId) addToList.mutate({ listId: selectedListId, contactId: contact.id });
+                  }}
+                >
+                  <Text style={styles.listMemberName}>{contact.name}</Text>
+                  <Feather name="plus" size={16} color={GOLD} />
+                </TouchableOpacity>
+              ))}
+          </ScrollView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -1941,4 +2324,142 @@ const styles = StyleSheet.create({
   },
   numberText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#FFFFFF" },
   numberMeta: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#555", marginTop: 2 },
+
+  contactHeaderActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  importBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#1A1A1A",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A1A1A",
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+  },
+  searchIcon: { marginRight: 8 },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    color: "#FFFFFF",
+  },
+  contactCardDNC: {
+    borderLeftWidth: 3,
+    borderLeftColor: "#EF4444",
+  },
+  tagBadge: {
+    backgroundColor: "#1A1A1A",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+  },
+  tagBadgeText: { fontSize: 10, fontFamily: "Inter_500Medium", color: "#8A8A8A" },
+
+  listsSection: {
+    marginTop: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  listsSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  listsSectionTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#8A8A8A",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  newListBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Colors.goldMuted,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  newListBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: GOLD },
+  listCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#111111",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#1A1A1A",
+  },
+  listCardLeft: { flexDirection: "row", alignItems: "center" },
+  listCardName: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#FFFFFF" },
+  listCardCount: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#555", marginTop: 2 },
+
+  importPreviewLabel: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#8A8A8A",
+    marginBottom: 12,
+  },
+  importRow: {
+    backgroundColor: "#1A1A1A",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  importRowName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#FFFFFF" },
+  importRowMeta: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#555", marginTop: 3 },
+  importMoreText: { fontSize: 13, fontFamily: "Inter_400Regular", color: "#555", textAlign: "center", marginTop: 4 },
+  importResult: { alignItems: "center", paddingVertical: 40, gap: 12 },
+  importResultTitle: { fontSize: 20, fontFamily: "Inter_700Bold", color: "#FFFFFF" },
+  importResultText: { fontSize: 14, fontFamily: "Inter_400Regular", color: "#8A8A8A", textAlign: "center" },
+
+  listDetailSectionLabel: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#8A8A8A",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+  listMemberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#1A1A1A",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  listMemberInfo: {},
+  listMemberName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#FFFFFF" },
+  listMemberMeta: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#555", marginTop: 2 },
+  listAddContactRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#111111",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#1A1A1A",
+  },
 });
