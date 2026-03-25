@@ -13,12 +13,14 @@ import { checkWalletAndDebit, getOrCreateWallet, recordUsage } from "../lib/usag
 import { getDecryptedKey } from "./keys.js";
 import { generateToken } from "../lib/crypto.js";
 import { openai as replitOpenAI } from "@workspace/integrations-openai-ai-server";
+import { searchKnowledge } from "../lib/knowledgeSearch.js";
 
 const router = Router();
 
 const OrchestrateSchema = z.object({
   message: z.string().min(1).max(4000),
   businessId: z.string(),
+  agentId: z.string().optional().nullable(),
   sessionMode: z.enum(["deep_research", "strategy_swot", "brainstorm", "business_plan"]).optional().nullable(),
   provider: z.enum(["openai", "anthropic"]).optional().nullable(),
 });
@@ -97,7 +99,7 @@ router.post("/", requireAuth, async (req, res, next) => {
       return;
     }
 
-    const { message, businessId, sessionMode, provider = "openai" } = parsed.data;
+    const { message, businessId, agentId = null, sessionMode, provider = "openai" } = parsed.data;
 
     const wallet = await getOrCreateWallet(req.userId!);
     const costPence = 5;
@@ -124,9 +126,18 @@ router.post("/", requireAuth, async (req, res, next) => {
       : BASE_SYSTEM_PROMPT;
 
     const networkingSummary = await getNetworkingContextSummary(req.userId!, businessId);
-    const systemPrompt = networkingSummary
+
+    const knowledgeChunks = await searchKnowledge(businessId, agentId ?? null, message, 5);
+    const relevantChunks = knowledgeChunks.filter((c) => c.score > 0.7);
+
+    let systemPrompt = networkingSummary
       ? `${basePrompt}\n\n${networkingSummary} If relevant to the user's message or when helpful, proactively mention these networking updates and guide them to the Network tab.`
       : basePrompt;
+
+    if (relevantChunks.length > 0) {
+      const knowledgeContext = relevantChunks.map((c) => c.content).join("\n\n---\n\n");
+      systemPrompt = `${systemPrompt}\n\nContext from your knowledge base:\n${knowledgeContext}`;
+    }
 
     const history = await getConversationHistory(req.userId!, businessId);
     const chatMessages = [

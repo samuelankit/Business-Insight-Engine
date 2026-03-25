@@ -6,6 +6,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { businessesTable } from "./businesses";
+import { agentsTable } from "./agents";
 
 export const knowledgeDocumentsTable = pgTable(
   "knowledge_documents",
@@ -14,6 +15,7 @@ export const knowledgeDocumentsTable = pgTable(
     businessId: text("business_id")
       .notNull()
       .references(() => businessesTable.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").references(() => agentsTable.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     status: text("status").notNull().default("processing"),
     chunkCount: integer("chunk_count"),

@@ -473,6 +473,27 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Knowledge Base */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>AI Knowledge</Text>
+          <TouchableOpacity
+            style={styles.card}
+            onPress={() => router.push("/knowledge" as any)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.menuRow}>
+              <View style={styles.menuIcon}>
+                <Feather name="book" size={16} color={GOLD} />
+              </View>
+              <View style={styles.menuInfo}>
+                <Text style={styles.menuLabel}>Knowledge Base</Text>
+                <Text style={styles.menuSubtext}>Upload documents to teach your AI agents</Text>
+              </View>
+              <Feather name="chevron-right" size={16} color="#555" />
+            </View>
+          </TouchableOpacity>
+        </View>
+
         {/* Businesses */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Businesses</Text>
